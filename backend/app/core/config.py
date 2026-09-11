@@ -17,11 +17,15 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://toxicheck:toxicheck@localhost:5432/toxicheck"
     )
     frontend_origins_raw: str = Field(
-        default="http://localhost:5173,http://127.0.0.1:5173",
+        default=(
+            "http://localhost:5173,"
+            "http://127.0.0.1:5173,"
+            "https://toxicheck-ruby.vercel.app"
+        ),
         alias="FRONTEND_ORIGINS",
     )
     open_food_facts_base_url: str = "https://world.openfoodfacts.org"
-    ocr_mode: str = "disabled"
+    ocr_mode: str = "embedded"
     ocr_service_url: str | None = None
 
     @model_validator(mode="after")
