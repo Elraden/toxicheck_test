@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: toxicheck
+      POSTGRES_USER: toxicheck
+      POSTGRES_PASSWORD: toxicheck
+    ports:
+      - "5432:5432"
+    volumes:
+      - toxicheck_postgres:/var/lib/postgresql/data
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U toxicheck -d toxicheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.render
+    environment:
+      APP_NAME: ToxiCheck API
+      APP_ENV: local
+      DATABASE_URL: postgresql+asyncpg://toxicheck:toxicheck@postgres:5432/toxicheck
+      FRONTEND_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      OPEN_FOOD_FACTS_BASE_URL: https://world.openfoodfacts.org
+      OCR_MODE: embedded
+      OCR_SERVICE_URL:
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  toxicheck_postgres:

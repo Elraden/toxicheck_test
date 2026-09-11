@@ -1,0 +1,11 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  max-width: 480px;
+  font-family: "Montserrat";
+  min-height: 100dvh;
+}
