@@ -56,24 +56,37 @@ Backend API will be available at:
 http://localhost:8000/api
 ```
 
-## Deploy Backend To Render
+## Deploy Backend To Railway
 
-Render deployment files:
+Railway deployment files:
 
-- `render.yaml`
-- `backend/Dockerfile.render`
+- `railway.json`
+- `backend/Dockerfile.railway`
 
-The Render image installs system Tesseract and runs OCR inside the backend with:
+The Railway image installs system Tesseract and runs OCR inside the backend with:
 
 ```env
 OCR_MODE=embedded
 ```
 
-After Render creates the service, copy its public URL and set this variable in
+Create a Railway project from the GitHub repository, add a Postgres service,
+then set backend service variables:
+
+```env
+APP_NAME=ToxiCheck API
+APP_ENV=production
+FRONTEND_ORIGINS=https://toxicheck-ruby.vercel.app
+OPEN_FOOD_FACTS_BASE_URL=https://world.openfoodfacts.org
+OCR_MODE=embedded
+OCR_SERVICE_URL=
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+```
+
+After Railway creates a public backend domain, copy its URL and set this variable in
 the Vercel frontend project:
 
 ```env
-VITE_API_BASE_URL=https://your-render-service.onrender.com/api
+VITE_API_BASE_URL=https://your-railway-service.up.railway.app/api
 ```
 
 Then redeploy Vercel.

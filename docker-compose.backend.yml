@@ -24,7 +24,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: backend/Dockerfile.render
+      dockerfile: backend/Dockerfile.railway
     environment:
       APP_NAME: ToxiCheck API
       APP_ENV: local
