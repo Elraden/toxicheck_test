@@ -477,6 +477,13 @@ onBeforeUnmount(() => {
       {{ message }}
     </p>
 
+    <button v-if="
+      mode === 'text' &&
+      status === 'scanning'
+    " type="button" class="scanner__action" @click="captureText">
+      Сфотографировать состав
+    </button>
+
     <section class="scanner-debug">
       <h2 class="scanner-debug__title">
         Диагностика
@@ -541,13 +548,6 @@ onBeforeUnmount(() => {
         </strong>
       </p>
     </section>
-
-    <button v-if="
-      mode === 'text' &&
-      status === 'scanning'
-    " type="button" class="scanner__action" @click="captureText">
-      Сфотографировать состав
-    </button>
 
     <button v-if="status === 'error'" type="button" class="scanner__action" @click="retryScanning">
       Попробовать снова
