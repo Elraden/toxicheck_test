@@ -36,6 +36,15 @@ type IngredientItem = {
   risk: RiskLevel;
 };
 
+type OcrDiagnostics = {
+  status: string;
+  rawText: string;
+  compositionText: string;
+  allergensText: string;
+  confidence: string;
+  processingTime: string;
+};
+
 const additiveCatalog: Record<
   string,
   {
@@ -263,6 +272,17 @@ function getArray(
     : [];
 }
 
+function getNumber(
+  source: ProductRecord | null,
+  key: string
+): number | null {
+  const value = source?.[key];
+
+  return typeof value === 'number'
+    ? value
+    : null;
+}
+
 function normalizeWhitespace(
   value: string
 ): string {
@@ -485,6 +505,39 @@ const productFallbackMeta = computed(() => {
   return productCode.value
     ? `Штрихкод ${productCode.value}`
     : 'Скан состава';
+});
+
+const ocrDiagnostics = computed<OcrDiagnostics | null>(() => {
+  const root = responseRoot.value;
+  const ocr = isRecord(root?.ocr)
+    ? root.ocr
+    : null;
+
+  if (!ocr) {
+    return null;
+  }
+
+  const confidence =
+    getNumber(ocr, 'confidence');
+  const processingTime =
+    getNumber(ocr, 'processing_time_ms');
+
+  return {
+    status: getString(ocr, 'status') || 'success',
+    rawText: getString(ocr, 'raw_text'),
+    compositionText:
+      getString(ocr, 'composition_text') ||
+      getString(product.value, 'ingredients_text'),
+    allergensText:
+      getString(ocr, 'allergens_text') ||
+      getString(product.value, 'allergens'),
+    confidence: confidence === null
+      ? '—'
+      : `${Math.round(confidence * 100)}%`,
+    processingTime: processingTime === null
+      ? '—'
+      : `${processingTime} мс`
+  };
 });
 
 const hasCompositionData = computed(() => {
@@ -724,6 +777,45 @@ onMounted(() => {
           </p>
         </section>
 
+        <section v-if="ocrDiagnostics" class="ocr-debug">
+          <div class="ocr-debug__header">
+            <h2 class="ocr-debug__title">
+              Диагностика OCR
+            </h2>
+
+            <span class="ocr-debug__status">
+              {{ ocrDiagnostics.status }}
+            </span>
+          </div>
+
+          <dl class="ocr-debug__meta">
+            <div>
+              <dt>Confidence</dt>
+              <dd>{{ ocrDiagnostics.confidence }}</dd>
+            </div>
+
+            <div>
+              <dt>Время</dt>
+              <dd>{{ ocrDiagnostics.processingTime }}</dd>
+            </div>
+          </dl>
+
+          <div class="ocr-debug__block">
+            <h3>Очищенный состав</h3>
+            <pre>{{ ocrDiagnostics.compositionText || 'Состав не определен' }}</pre>
+          </div>
+
+          <div v-if="ocrDiagnostics.allergensText" class="ocr-debug__block">
+            <h3>Аллергены</h3>
+            <pre>{{ ocrDiagnostics.allergensText }}</pre>
+          </div>
+
+          <div class="ocr-debug__block">
+            <h3>Сырой ответ OCR</h3>
+            <pre>{{ ocrDiagnostics.rawText || 'OCR не вернул текст' }}</pre>
+          </div>
+        </section>
+
         <section v-if="isProductMissing" class="result-state result-state--empty">
           Товар не найден в базе Open Food Facts
         </section>
@@ -855,6 +947,7 @@ onMounted(() => {
 
 .product-card,
 .risk-card,
+.ocr-debug,
 .ingredient-card,
 .composition__empty {
   border: 1px solid #dfe6e3;
@@ -878,6 +971,90 @@ onMounted(() => {
   color: #66736e;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.ocr-debug {
+  padding: 14px;
+}
+
+.ocr-debug__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ocr-debug__title {
+  margin: 0;
+  color: #0d1714;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.ocr-debug__status {
+  max-width: 120px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: #66736e;
+  background-color: #eef4f1;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+
+.ocr-debug__meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.ocr-debug__meta div {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background-color: #f6f8f7;
+}
+
+.ocr-debug__meta dt {
+  margin: 0 0 4px;
+  color: #6f7d78;
+  font-size: 11px;
+}
+
+.ocr-debug__meta dd {
+  margin: 0;
+  color: #0d1714;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ocr-debug__block {
+  margin-top: 12px;
+}
+
+.ocr-debug__block h3 {
+  margin: 0 0 6px;
+  color: #24302c;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.ocr-debug__block pre {
+  overflow: auto;
+  max-height: 180px;
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  color: #dbe7e2;
+  background-color: #14201c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .risk-card {

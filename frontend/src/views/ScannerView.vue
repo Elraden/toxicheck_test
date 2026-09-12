@@ -219,6 +219,8 @@ function createCompositionProduct(
     ocr: {
       status: result.status,
       raw_text: result.recognizedText ?? '',
+      composition_text: ingredientsText,
+      allergens_text: allergensText,
       confidence: result.confidence ?? null,
       processing_time_ms:
         result.processingTimeMs ?? null
@@ -307,6 +309,11 @@ async function captureText(): Promise<void> {
 
     const result =
       await scanCompositionImage(image);
+
+    console.info(
+      'OCR composition scan result',
+      result
+    );
 
     if (currentSession !== scanSession) {
       return;

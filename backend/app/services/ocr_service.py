@@ -1,6 +1,7 @@
 import base64
 import asyncio
 import importlib.util
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -10,7 +11,13 @@ import httpx
 
 from app.core.config import settings
 from app.schemas.ocr import OcrResult
-from app.services.composition_cleaner import clean_composition_text, clean_raw_ocr_text
+from app.services.composition_cleaner import (
+    clean_composition_text,
+    clean_raw_ocr_text,
+    is_probable_composition_text,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _strip_data_url(image_base64: str) -> tuple[str, str]:
@@ -75,6 +82,11 @@ class OcrService:
             )
 
         request_id = str(uuid.uuid4())
+        logger.info(
+            "OCR request started mode=http request_id=%s image_format=%s",
+            request_id,
+            image_format,
+        )
 
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
@@ -99,6 +111,12 @@ class OcrService:
             )
 
         data = response.json()
+        logger.info(
+            "OCR HTTP response received request_id=%s status=%s processing_time_ms=%s",
+            request_id,
+            data.get("status"),
+            data.get("processing_time_ms"),
+        )
 
         if data.get("status") != "success":
             error = data.get("error")
@@ -131,9 +149,17 @@ class OcrService:
             data.get("extracted_allergens")
         )
 
+        if composition and not is_probable_composition_text(composition):
+            logger.info(
+                "OCR composition rejected request_id=%s reason=not_probable text=%r",
+                request_id,
+                composition,
+            )
+            composition = ""
+
         processing_time_ms = data.get("processing_time_ms")
 
-        return OcrResult(
+        result = OcrResult(
             status="success",
             rawText=clean_raw_ocr_text(raw_text),
             compositionText=composition,
@@ -146,6 +172,14 @@ class OcrService:
             ),
             message="Composition recognized.",
         )
+
+        self._log_ocr_result(
+            "http",
+            result,
+            request_id=request_id,
+        )
+
+        return result
 
     async def _recognize_embedded(self, payload: str) -> OcrResult:
         try:
@@ -161,6 +195,12 @@ class OcrService:
 
     def _recognize_embedded_sync(self, payload: str) -> OcrResult:
         start_time = time.time()
+        request_id = str(uuid.uuid4())
+        logger.info(
+            "OCR request started mode=embedded request_id=%s",
+            request_id,
+        )
+
         embedded_ocr = _load_embedded_ocr_module()
 
         image = embedded_ocr.decode_base64_image(payload)
@@ -184,7 +224,15 @@ class OcrService:
             embedded_ocr.extract_allergens_block(raw_text)
         )
 
-        return OcrResult(
+        if composition and not is_probable_composition_text(composition):
+            logger.info(
+                "OCR composition rejected request_id=%s reason=not_probable text=%r",
+                request_id,
+                composition,
+            )
+            composition = ""
+
+        result = OcrResult(
             status="success",
             rawText=clean_raw_ocr_text(raw_text),
             compositionText=composition,
@@ -192,6 +240,44 @@ class OcrService:
             confidence=confidence if isinstance(confidence, (int, float)) else None,
             processingTimeMs=round((time.time() - start_time) * 1000),
             message="Composition recognized by embedded OCR.",
+        )
+
+        self._log_ocr_result(
+            "embedded",
+            result,
+            request_id=request_id,
+        )
+
+        return result
+
+    def _log_ocr_result(
+        self,
+        mode: str,
+        result: OcrResult,
+        request_id: str,
+    ) -> None:
+        logger.info(
+            "OCR result mode=%s request_id=%s status=%s confidence=%s processing_time_ms=%s",
+            mode,
+            request_id,
+            result.status,
+            result.confidence,
+            result.processing_time_ms,
+        )
+        logger.info(
+            "OCR raw_text request_id=%s text=%r",
+            request_id,
+            result.raw_text,
+        )
+        logger.info(
+            "OCR composition_text request_id=%s text=%r",
+            request_id,
+            result.composition_text,
+        )
+        logger.info(
+            "OCR allergens_text request_id=%s text=%r",
+            request_id,
+            result.allergens_text,
         )
 
     async def enqueue_image(self, image_base64: str) -> OcrResult:
