@@ -3,6 +3,7 @@ import {
   computed,
   onBeforeUnmount,
   onMounted,
+  ref,
   watch
 } from 'vue';
 
@@ -31,6 +32,8 @@ const route = useRoute();
 const router = useRouter();
 
 const scannerStore = useScannerStore();
+const nativeCameraInput =
+  ref<HTMLInputElement | null>(null);
 
 const {
   mode,
@@ -236,6 +239,82 @@ function createCompositionProduct(
   };
 }
 
+function readImageFileAsDataUrl(
+  file: File
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => {
+      reject(
+        new Error('Не удалось прочитать изображение')
+      );
+    };
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(
+        new Error('Не удалось получить изображение')
+      );
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+async function submitCompositionImage(
+  image: string,
+  session: number
+): Promise<void> {
+  scannerStore.setCapturedImage(image);
+
+  scannerStore.setStatus(
+    'loading',
+    'Отправляем состав на распознавание...'
+  );
+
+  const result =
+    await scanCompositionImage(image);
+
+  console.info(
+    'OCR composition scan result',
+    result
+  );
+
+  if (session !== scanSession) {
+    return;
+  }
+
+  if (result.status !== 'success') {
+    scannerStore.setStatus(
+      'error',
+      result.message ||
+      'Не удалось распознать состав'
+    );
+
+    return;
+  }
+
+  scannerStore.setProductJson(
+    createCompositionProduct(result)
+  );
+
+  scannerStore.setStatus(
+    'done',
+    result.ingredientsText?.trim()
+      ? 'Состав распознан'
+      : 'Состав не определен'
+  );
+
+  void router.push({
+    name: 'scan-result'
+  });
+}
+
 async function startSelectedMode():
   Promise<void> {
   const currentSession = ++scanSession;
@@ -298,51 +377,63 @@ async function captureText(): Promise<void> {
     const image =
       captureCurrentFrame();
 
-    scannerStore.setCapturedImage(image);
-
-    scannerStore.setStatus(
-      'loading',
-      'Отправляем состав на распознавание...'
-    );
-
     stopCamera();
 
-    const result =
-      await scanCompositionImage(image);
-
-    console.info(
-      'OCR composition scan result',
-      result
+    await submitCompositionImage(
+      image,
+      currentSession
     );
-
+  } catch (error) {
     if (currentSession !== scanSession) {
       return;
     }
 
-    if (result.status !== 'success') {
-      scannerStore.setStatus(
-        'error',
-        result.message ||
-        'Не удалось распознать состав'
-      );
-
-      return;
-    }
-
-    scannerStore.setProductJson(
-      createCompositionProduct(result)
-    );
-
     scannerStore.setStatus(
-      'done',
-      result.ingredientsText?.trim()
-        ? 'Состав распознан'
-        : 'Состав не определен'
-    );
+      'error',
 
-    void router.push({
-      name: 'scan-result'
-    });
+      error instanceof Error
+        ? error.message
+        : 'Не удалось обработать изображение'
+    );
+  }
+}
+
+function captureTextWithNativeCamera(): void {
+  if (
+    mode.value !== 'text' ||
+    status.value !== 'scanning'
+  ) {
+    return;
+  }
+
+  nativeCameraInput.value?.click();
+}
+
+async function handleNativeCameraChange(
+  event: Event
+): Promise<void> {
+  const input =
+    event.currentTarget as HTMLInputElement;
+  const file = input.files?.[0];
+
+  input.value = '';
+
+  if (!file) {
+    return;
+  }
+
+  const currentSession = scanSession;
+
+  try {
+    const image =
+      await readImageFileAsDataUrl(file);
+
+    stopCamera();
+
+    await submitCompositionImage(
+      image,
+      currentSession
+    );
   } catch (error) {
     if (currentSession !== scanSession) {
       return;
@@ -490,6 +581,22 @@ onBeforeUnmount(() => {
     " type="button" class="scanner__action" @click="captureText">
       Сфотографировать состав
     </button>
+
+    <button v-if="
+      mode === 'text' &&
+      status === 'scanning'
+    " type="button" class="scanner__action scanner__action--secondary" @click="captureTextWithNativeCamera">
+      Сфотографировать состав нативной камерой
+    </button>
+
+    <input
+      ref="nativeCameraInput"
+      class="scanner__native-input"
+      type="file"
+      accept="image/*"
+      capture="environment"
+      @change="handleNativeCameraChange"
+    >
 
     <section class="scanner-debug">
       <h2 class="scanner-debug__title">
@@ -699,6 +806,7 @@ onBeforeUnmount(() => {
 .scanner__action {
   width: 100%;
   min-height: 48px;
+  margin-top: 10px;
   border: 0;
   border-radius: 12px;
   color: #ffffff;
@@ -706,6 +814,21 @@ onBeforeUnmount(() => {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+}
+
+.scanner__action--secondary {
+  border: 1px solid #25a777;
+  color: #1c8f66;
+  background-color: #eefaf5;
+}
+
+.scanner__native-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .scanner-debug {
