@@ -22,6 +22,7 @@ class BarcodeScanResponse(BaseModel):
 
 class CompositionScanRequest(BaseModel):
     image_base64: str = Field(alias="imageBase64", min_length=1)
+    capture_source: str = Field(default="unknown", alias="captureSource")
     preferences: AnalysisPreferences = Field(default_factory=AnalysisPreferences)
 
 
@@ -30,6 +31,7 @@ class CompositionScanResponse(BaseModel):
 
     job_id: str | None = Field(default=None, alias="jobId")
     status: str
+    capture_source: str | None = Field(default=None, alias="captureSource")
     message: str
     recognized_text: str | None = Field(default=None, alias="recognizedText")
     ingredients_text: str | None = Field(default=None, alias="ingredientsText")

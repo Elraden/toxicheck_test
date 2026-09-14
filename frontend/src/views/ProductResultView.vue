@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import {
   computed,
-  onMounted,
-  ref
+  onBeforeUnmount,
+  ref,
+  watch
 } from 'vue';
 
 import { storeToRefs } from 'pinia';
@@ -21,8 +22,11 @@ import {
 
 import { getProductByBarcode } from '@/services/openFoodFacts';
 import { useScannerStore } from '@/stores/scanner';
+import { analyzeIngredients, type IngredientAnalysis, type IngredientRule } from '@/services/backendApi';
+import { readPersonalExclusions } from '@/services/personalExclusions';
 
 type RiskLevel =
+  | 'unknown'
   | 'neutral'
   | 'warning'
   | 'avoid';
@@ -34,199 +38,20 @@ type IngredientItem = {
   name: string;
   code?: string;
   risk: RiskLevel;
+  rules: IngredientRule[];
+  matchedBy?: string;
+  rawText?: string;
 };
 
 type OcrDiagnostics = {
   status: string;
+  source: string;
   rawText: string;
   compositionText: string;
   allergensText: string;
   confidence: string;
   processingTime: string;
 };
-
-const additiveCatalog: Record<
-  string,
-  {
-    name: string;
-    risk: RiskLevel;
-  }
-> = {
-  E100: {
-    name: 'Куркумин',
-    risk: 'neutral'
-  },
-  E101: {
-    name: 'Рибофлавин',
-    risk: 'neutral'
-  },
-  E102: {
-    name: 'Тартразин',
-    risk: 'warning'
-  },
-  E104: {
-    name: 'Хинолиновый желтый',
-    risk: 'warning'
-  },
-  E110: {
-    name: 'Желтый солнечный закат',
-    risk: 'warning'
-  },
-  E120: {
-    name: 'Кармин',
-    risk: 'warning'
-  },
-  E122: {
-    name: 'Азорубин',
-    risk: 'warning'
-  },
-  E124: {
-    name: 'Понсо 4R',
-    risk: 'warning'
-  },
-  E129: {
-    name: 'Красный очаровательный AC',
-    risk: 'warning'
-  },
-  E171: {
-    name: 'Диоксид титана',
-    risk: 'avoid'
-  },
-  E202: {
-    name: 'Сорбат калия',
-    risk: 'neutral'
-  },
-  E211: {
-    name: 'Бензоат натрия',
-    risk: 'warning'
-  },
-  E220: {
-    name: 'Диоксид серы',
-    risk: 'warning'
-  },
-  E250: {
-    name: 'Нитрит натрия',
-    risk: 'warning'
-  },
-  E300: {
-    name: 'Аскорбиновая кислота',
-    risk: 'neutral'
-  },
-  E301: {
-    name: 'Аскорбат натрия',
-    risk: 'neutral'
-  },
-  E306: {
-    name: 'Токоферолы',
-    risk: 'neutral'
-  },
-  E322: {
-    name: 'Лецитин',
-    risk: 'neutral'
-  },
-  E330: {
-    name: 'Лимонная кислота',
-    risk: 'neutral'
-  },
-  E331: {
-    name: 'Цитраты натрия',
-    risk: 'neutral'
-  },
-  E407: {
-    name: 'Каррагинан',
-    risk: 'warning'
-  },
-  E412: {
-    name: 'Гуаровая камедь',
-    risk: 'neutral'
-  },
-  E415: {
-    name: 'Ксантановая камедь',
-    risk: 'neutral'
-  },
-  E420: {
-    name: 'Сорбит',
-    risk: 'warning'
-  },
-  E422: {
-    name: 'Глицерин',
-    risk: 'neutral'
-  },
-  E440: {
-    name: 'Пектин',
-    risk: 'neutral'
-  },
-  E450: {
-    name: 'Дифосфаты',
-    risk: 'warning'
-  },
-  E451: {
-    name: 'Трифосфаты',
-    risk: 'warning'
-  },
-  E452: {
-    name: 'Полифосфаты',
-    risk: 'warning'
-  },
-  E471: {
-    name: 'Моно- и диглицериды жирных кислот',
-    risk: 'neutral'
-  },
-  E621: {
-    name: 'Глутамат натрия',
-    risk: 'warning'
-  },
-  E950: {
-    name: 'Ацесульфам калия',
-    risk: 'warning'
-  },
-  E951: {
-    name: 'Аспартам',
-    risk: 'avoid'
-  },
-  E952: {
-    name: 'Цикламаты',
-    risk: 'avoid'
-  },
-  E955: {
-    name: 'Сукралоза',
-    risk: 'warning'
-  },
-  E960: {
-    name: 'Стевиолгликозиды',
-    risk: 'neutral'
-  }
-};
-
-const nameHints: Array<{
-  pattern: RegExp;
-  code: string;
-}> = [
-    {
-      pattern: /диоксид\s+титана/i,
-      code: 'E171'
-    },
-    {
-      pattern: /бензоат\s+натрия/i,
-      code: 'E211'
-    },
-    {
-      pattern: /кармин/i,
-      code: 'E120'
-    },
-    {
-      pattern: /аскорбинов/i,
-      code: 'E300'
-    },
-    {
-      pattern: /лимонн\w*\s+кисл/i,
-      code: 'E330'
-    },
-    {
-      pattern: /лецитин/i,
-      code: 'E322'
-    }
-  ];
 
 const scannerStore = useScannerStore();
 const route = useRoute();
@@ -239,6 +64,12 @@ const {
 
 const isLoading = ref(false);
 const loadError = ref('');
+const analysis = ref<IngredientAnalysis | null>(null);
+const analysisLoading = ref(false);
+const analysisError = ref('');
+const showReasons = ref(false);
+let analysisController: AbortController | undefined;
+let productRequestId = 0;
 
 function isRecord(
   value: unknown
@@ -283,34 +114,6 @@ function getNumber(
     : null;
 }
 
-function normalizeWhitespace(
-  value: string
-): string {
-  return value
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function normalizeECode(
-  value: string
-): string {
-  const match = value.match(
-    /(?:^|[^a-zа-я])e[\s-]?(\d{3,4}[a-z]?)/i
-  );
-
-  return match?.[1]
-    ? `E${match[1].toUpperCase()}`
-    : '';
-}
-
-function inferCodeByName(value: string): string {
-  const hint = nameHints.find((item) =>
-    item.pattern.test(value)
-  );
-
-  return hint?.code ?? '';
-}
-
 function formatTag(value: string): string {
   const withoutLanguage = value.replace(
     /^[a-z]{2}:/i,
@@ -322,65 +125,6 @@ function formatTag(value: string): string {
     .replace(/\b\w/g, (letter) =>
       letter.toUpperCase()
     );
-}
-
-function getRisk(
-  code?: string
-): RiskLevel {
-  if (!code) {
-    return 'neutral';
-  }
-
-  return additiveCatalog[code]?.risk ?? 'neutral';
-}
-
-function getIngredientName(
-  rawName: string,
-  code?: string
-): string {
-  const cleaned = normalizeWhitespace(
-    rawName
-      .replace(/\*/g, '')
-      .replace(/\([^)]{0,80}\)/g, '')
-      .replace(
-        /(?:^|[^a-zа-я])e[\s-]?\d{3,4}[a-z]?/i,
-        ''
-      )
-      .replace(/^[-:–—\s]+/, '')
-      .replace(/[-:–—\s]+$/, '')
-  );
-
-  if (cleaned) {
-    return cleaned;
-  }
-
-  if (code) {
-    return additiveCatalog[code]?.name ?? `Добавка ${code}`;
-  }
-
-  return formatTag(rawName);
-}
-
-function createIngredientItem(
-  value: string,
-  index: number
-): IngredientItem | null {
-  const text = normalizeWhitespace(value);
-
-  if (!text) {
-    return null;
-  }
-
-  const code =
-    normalizeECode(text) ||
-    inferCodeByName(text);
-
-  return {
-    id: `${code ?? normalizeWhitespace(text).toLowerCase()}-${index}`,
-    name: getIngredientName(text, code),
-    code,
-    risk: getRisk(code)
-  };
 }
 
 function getRouteBarcode(): string {
@@ -524,6 +268,7 @@ const ocrDiagnostics = computed<OcrDiagnostics | null>(() => {
 
   return {
     status: getString(ocr, 'status') || 'success',
+    source: getString(ocr, 'capture_source') || 'unknown',
     rawText: getString(ocr, 'raw_text'),
     compositionText:
       getString(ocr, 'composition_text') ||
@@ -540,148 +285,81 @@ const ocrDiagnostics = computed<OcrDiagnostics | null>(() => {
   };
 });
 
-const hasCompositionData = computed(() => {
-  if (getString(product.value, 'ingredients_text')) {
-    return true;
-  }
-
-  return (
-    getArray(product.value, 'ingredients').length > 0 ||
-    getArray(product.value, 'additives_tags').length > 0 ||
-    getArray(product.value, 'additives_original_tags').length > 0
-  );
-});
-
-const ingredientItems = computed<IngredientItem[]>(() => {
-  if (!hasCompositionData.value) {
-    return [];
-  }
-
-  const items: IngredientItem[] = [];
-  const knownIngredientKeys = new Set<string>();
-
-  const addItem = (
-    item: IngredientItem | null
-  ): void => {
-    if (!item) {
-      return;
+const compositionText = computed(() => {
+  const raw = getString(product.value, 'ingredients_text');
+  if (raw) return raw;
+  const names: string[] = [];
+  const visit = (items: unknown[]) => {
+    for (const item of items) {
+      if (!isRecord(item)) continue;
+      const name = getString(item, 'text') || getString(item, 'id').replace(/^[a-z]{2}:/i, '');
+      if (name) names.push(name);
+      visit(getArray(item, 'ingredients'));
     }
-
-    const key =
-      item.code ??
-      normalizeWhitespace(item.name).toLowerCase();
-
-    if (knownIngredientKeys.has(key)) {
-      return;
-    }
-
-    knownIngredientKeys.add(key);
-    items.push(item);
   };
-
-  getArray(product.value, 'ingredients')
-    .forEach((ingredient, index) => {
-      if (!isRecord(ingredient)) {
-        return;
-      }
-
-      const text =
-        getString(ingredient, 'text') ||
-        getString(ingredient, 'id');
-
-      const code =
-        normalizeECode(
-          `${getString(ingredient, 'id')} ${text}`
-        ) ||
-        inferCodeByName(text);
-
-      addItem({
-        id: `${code ?? normalizeWhitespace(text).toLowerCase()}-structured-${index}`,
-        name: getIngredientName(text, code),
-        code,
-        risk: getRisk(code)
-      });
-    });
-
-  [
-    ...getArray(product.value, 'additives_tags'),
-    ...getArray(product.value, 'additives_original_tags')
-  ].forEach((tag, index) => {
-    if (typeof tag !== 'string') {
-      return;
-    }
-
-    const code = normalizeECode(tag);
-
-    if (!code) {
-      return;
-    }
-
-    addItem({
-      id: `${code}-tag-${index}`,
-      name: additiveCatalog[code]?.name ?? formatTag(tag),
-      code,
-      risk: getRisk(code)
-    });
-  });
-
-  getString(product.value, 'ingredients_text')
-    .split(/[,;]/)
-    .forEach((part, index) => {
-      addItem(
-        createIngredientItem(part, index)
-      );
-    });
-
-  return items;
+  visit(getArray(product.value, 'ingredients'));
+  return names.join(', ');
 });
 
+const hasCompositionData = computed(() => Boolean(compositionText.value));
+const ingredientItems = computed<IngredientItem[]>(() => {
+  if (!analysis.value) return [];
+  const personal = new Set(analysis.value.verdict.reasons
+    .filter((reason) => reason.severity === 'personal').map((reason) => reason.ingredient_id));
+  return [
+    ...analysis.value.matched.map((item): IngredientItem => ({
+      id: item.ingredient_id, name: item.name, code: item.code || undefined,
+      rawText: item.raw_text, matchedBy: item.matched_by, rules: item.rules,
+      risk: personal.has(item.ingredient_id) ? 'warning' :
+        ['avoid', 'forbidden'].includes(item.severity) ? 'avoid' :
+        item.severity === 'attention' ? 'warning' : 'neutral'
+    })),
+    ...analysis.value.unmatched.map((name, index): IngredientItem => ({
+      id: `unmatched-${index}`, name, risk: 'unknown', rules: []
+    }))
+  ];
+});
 const riskLevel = computed<RiskLevel>(() => {
-  if (
-    ingredientItems.value.some((item) =>
-      item.risk === 'avoid'
-    )
-  ) {
-    return 'avoid';
-  }
-
-  if (
-    ingredientItems.value.some((item) =>
-      item.risk === 'warning'
-    )
-  ) {
-    return 'warning';
-  }
-
-  return 'neutral';
+  const level = analysis.value?.verdict.level;
+  if (level === 'dangerous') return 'avoid';
+  if (level === 'attention' || level === 'risky_for_user') return 'warning';
+  return 'unknown';
 });
+const resultTitle = computed(() => analysis.value?.verdict.title || '');
+const resultDescription = computed(() => analysis.value?.verdict.description || '');
 
-const resultTitle = computed(() => {
-  return riskLevel.value === 'neutral'
-    ? 'Без явных рисков'
-    : 'С осторожностью';
-});
+function getRiskLabel(level: RiskLevel): string {
+  return { unknown: 'Нет данных', neutral: 'Нет предупреждений', warning: 'Внимание', avoid: 'Ограничения' }[level];
+}
 
-const resultDescription = computed(() => {
-  if (riskLevel.value === 'neutral') {
-    return 'В составе не найдено добавок из списка повышенного внимания.';
+function sourceUrl(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return ['https:', 'http:'].includes(url.protocol) ? url.href : undefined;
+  } catch { return undefined; }
+}
+
+async function runAnalysis(): Promise<void> {
+  analysisController?.abort();
+  const controller = new AbortController();
+  analysisController = controller;
+  analysis.value = null;
+  analysisError.value = '';
+  analysisLoading.value = false;
+  showReasons.value = false;
+  if (isProductMissing.value || !compositionText.value) return;
+  analysisLoading.value = true;
+  try {
+    const result = await analyzeIngredients(compositionText.value, readPersonalExclusions(), controller.signal);
+    if (!controller.signal.aborted) analysis.value = result;
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      analysisError.value = error instanceof Error ? error.message : 'Не удалось проверить состав';
+    }
+  } finally {
+    if (!controller.signal.aborted) analysisLoading.value = false;
   }
-
-  return 'Продукт содержит добавки, которые могут вызвать нежелательную реакцию при регулярном употреблении.';
-});
-
-function getRiskLabel(
-  level: RiskLevel
-): string {
-  if (level === 'avoid') {
-    return 'Нежелательный';
-  }
-
-  if (level === 'warning') {
-    return 'Внимание';
-  }
-
-  return 'Нейтральный';
 }
 
 function goBack(): void {
@@ -695,39 +373,37 @@ function goBack(): void {
   });
 }
 
-async function ensureProductLoaded():
-  Promise<void> {
-  if (productJson.value !== null) {
-    return;
-  }
-
-  const code = productCode.value;
-
-  if (!code) {
-    return;
-  }
-
-  isLoading.value = true;
+async function ensureProductLoaded(): Promise<void> {
+  const requestId = ++productRequestId;
+  isLoading.value = false;
+  const code = getRouteBarcode();
+  const root = isRecord(productJson.value) ? productJson.value : null;
+  const storedProduct = isRecord(root?.product) ? root.product : root;
+  const storedCode = getString(storedProduct, 'code') || getString(root, 'code');
+  if (root && (!code || code === storedCode)) return;
+  scannerStore.setProductJson(null);
   loadError.value = '';
-
+  if (!code) return;
+  isLoading.value = true;
   try {
-    const data =
-      await getProductByBarcode(code);
-
+    const data = await getProductByBarcode(code);
+    if (requestId !== productRequestId) return;
     scannerStore.setBarcode(code);
     scannerStore.setProductJson(data);
   } catch (error) {
-    loadError.value =
-      error instanceof Error
-        ? error.message
-        : 'Не удалось загрузить товар';
+    if (requestId === productRequestId) {
+      loadError.value = error instanceof Error ? error.message : 'Не удалось загрузить товар';
+    }
   } finally {
-    isLoading.value = false;
+    if (requestId === productRequestId) isLoading.value = false;
   }
 }
 
-onMounted(() => {
-  void ensureProductLoaded();
+watch(() => route.params.barcode, () => { void ensureProductLoaded(); }, { immediate: true });
+watch([compositionText, isProductMissing], () => { void runAnalysis(); }, { immediate: true });
+onBeforeUnmount(() => {
+  productRequestId++;
+  analysisController?.abort();
 });
 </script>
 
@@ -790,6 +466,11 @@ onMounted(() => {
 
           <dl class="ocr-debug__meta">
             <div>
+              <dt>Источник</dt>
+              <dd>{{ ocrDiagnostics.source }}</dd>
+            </div>
+
+            <div>
               <dt>Confidence</dt>
               <dd>{{ ocrDiagnostics.confidence }}</dd>
             </div>
@@ -816,11 +497,17 @@ onMounted(() => {
           </div>
         </section>
 
+        <div v-if="analysisLoading" class="result-state" role="status">Проверяем состав по справочнику...</div>
+        <div v-else-if="analysisError" class="result-state result-state--error" role="alert">
+          <p>{{ analysisError }}</p>
+          <button type="button" class="risk-card__details" @click="runAnalysis">Повторить проверку</button>
+        </div>
+
         <section v-if="isProductMissing" class="result-state result-state--empty">
           Товар не найден в базе Open Food Facts
         </section>
 
-        <section v-if="!isProductMissing && hasCompositionData" class="risk-card" :class="`risk-card--${riskLevel}`">
+        <section v-if="!isProductMissing && analysis" class="risk-card" :class="`risk-card--${riskLevel}`">
           <div class="risk-card__title">
             <AlertTriangle aria-hidden="true" />
             <h2>{{ resultTitle }}</h2>
@@ -830,12 +517,19 @@ onMounted(() => {
             {{ resultDescription }}
           </p>
 
-          <button type="button" class="risk-card__details">
+          <button type="button" class="risk-card__details" :aria-expanded="showReasons" @click="showReasons = !showReasons">
             <Info aria-hidden="true" />
             <span>Почему такой результат?</span>
             <ChevronRight aria-hidden="true" />
           </button>
         </section>
+
+        <div v-if="showReasons && analysis" class="verdict-reasons">
+          <p v-for="(reason, index) in analysis.verdict.reasons" :key="index">
+            <strong>{{ reason.title }}</strong><br>{{ reason.explanation }}
+          </p>
+          <p v-if="!analysis.verdict.reasons.length">{{ analysis.verdict.description }}</p>
+        </div>
 
         <section v-if="!isProductMissing && hasCompositionData" class="composition">
           <h2 class="composition__title">
@@ -858,11 +552,30 @@ onMounted(() => {
                 {{ getRiskLabel(item.risk) }}
               </span>
 
-              <ChevronRight class="ingredient-card__arrow" aria-hidden="true" />
+
+              <details v-if="item.rules.length" class="ingredient-evidence">
+                <summary>Правила и источники ({{ item.rules.length }})</summary>
+                <p v-if="item.matchedBy === 'similarity'">Приблизительное совпадение: {{ item.rawText }}</p>
+                <div v-for="rule in item.rules" :key="rule.id" class="ingredient-evidence__rule">
+                  <h4>{{ rule.title }}</h4>
+                  <p>{{ rule.assessment_note || rule.explanation }}</p>
+                  <template v-if="rule.conditions.evidence?.length">
+                    <p v-for="(evidence, index) in rule.conditions.evidence" :key="index">
+                      <a v-if="sourceUrl(evidence.url)" :href="sourceUrl(evidence.url)" target="_blank" rel="noopener noreferrer">{{ evidence.locator }}</a>
+                      <span v-else>{{ evidence.locator }}</span>
+                      <small v-if="evidence.verification_status !== 'verified_primary'">Нормативное основание требует проверки</small>
+                    </p>
+                  </template>
+                  <p v-else>
+                    {{ rule.citation }}
+                    <a v-if="sourceUrl(rule.source_url)" :href="sourceUrl(rule.source_url)" target="_blank" rel="noopener noreferrer">{{ rule.source_title || 'Источник' }}</a>
+                  </p>
+                </div>
+              </details>
             </article>
           </div>
 
-          <p v-else class="composition__empty">
+          <p v-else-if="!analysisLoading && !analysisError" class="composition__empty">
             В составе нет распознанных ингредиентов.
           </p>
         </section>
@@ -914,13 +627,11 @@ onMounted(() => {
 }
 
 .result-header__title {
-  overflow: hidden;
+  overflow-wrap: anywhere;
   margin: 0;
   color: #0d1714;
   font-size: 18px;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .result-content {
@@ -1006,7 +717,7 @@ onMounted(() => {
 
 .ocr-debug__meta {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 0 0 12px;
 }
@@ -1144,7 +855,7 @@ onMounted(() => {
 
 .ingredient-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 24px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   min-height: 48px;
@@ -1171,13 +882,13 @@ onMounted(() => {
 }
 
 .ingredient-card__badge {
-  max-width: 112px;
+  max-width: 140px;
   padding: 5px 9px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
+  line-height: 1.3;
+  white-space: normal;
 }
 
 .ingredient-card__badge--neutral {
@@ -1224,5 +935,22 @@ onMounted(() => {
     grid-column: 1 / -1;
     width: fit-content;
   }
+
+  .ocr-debug__meta {
+    grid-template-columns: 1fr;
+  }
 }
+.ingredient-evidence { grid-column: 1 / -1; min-width: 0; font-size: 13px; line-height: 1.5; }
+.ingredient-evidence[open] { max-height: 420px; overflow-y: auto; overscroll-behavior: contain; }
+.ingredient-evidence summary { cursor: pointer; color: #16875f; padding: 8px 0; }
+.ingredient-evidence__rule { border-top: 1px solid #dfe6e3; padding: 8px 0; }
+.ingredient-evidence h4 { margin: 4px 0; font-size: 13px; }
+.ingredient-evidence p { margin: 8px 0; }
+.ingredient-evidence a { color: #167759; }
+.ingredient-evidence small { display: block; color: #66736e; }
+.ingredient-evidence, .product-card, .ingredient-card__name, .ocr-debug__meta dd { overflow-wrap: anywhere; }
+.ingredient-card__badge--unknown { color: #53616a; background: #edf0f2; }
+.risk-card--unknown { background: #f0f3f5; border-color: #cdd5da; }
+.risk-card--unknown .risk-card__title { color: #53616a; }
+.verdict-reasons { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 </style>

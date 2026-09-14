@@ -90,3 +90,19 @@ VITE_API_BASE_URL=https://your-railway-service.up.railway.app/api
 ```
 
 Then redeploy Vercel.
+
+The Docker build creates the regulatory bundle from the two root JSON inputs
+and the seeds in `backend/db`. Railway's pre-deploy command imports it into
+the database specified by the backend's `DATABASE_URL`, in one transaction.
+Repeated imports update stable IDs without duplicating records. No local
+PostgreSQL is required. Use the private Railway variable reference above for
+the deployed backend; the public database URL is only for external imports.
+
+Check `/api/health/db` after deployment: it reports database availability and
+catalog row counts. The result page calls `/api/analysis` for barcode and OCR
+compositions, and preferences load `/api/preferences/catalog`. Neither screen
+uses a local risk catalog. Unknown ingredients remain visible as unknown.
+
+Vercel's `frontend/vercel.json` proxies `/api/*` to the Railway backend, so
+`VITE_API_BASE_URL` can be omitted in production for this deployment. Update
+the proxy destination when changing the backend domain.

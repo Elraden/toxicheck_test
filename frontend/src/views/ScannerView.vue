@@ -221,6 +221,8 @@ function createCompositionProduct(
     },
     ocr: {
       status: result.status,
+      capture_source:
+        result.captureSource ?? 'unknown',
       raw_text: result.recognizedText ?? '',
       composition_text: ingredientsText,
       allergens_text: allergensText,
@@ -268,7 +270,8 @@ function readImageFileAsDataUrl(
 
 async function submitCompositionImage(
   image: string,
-  session: number
+  session: number,
+  captureSource: 'browser_camera' | 'native_camera'
 ): Promise<void> {
   scannerStore.setCapturedImage(image);
 
@@ -278,7 +281,10 @@ async function submitCompositionImage(
   );
 
   const result =
-    await scanCompositionImage(image);
+    await scanCompositionImage(
+      image,
+      captureSource
+    );
 
   console.info(
     'OCR composition scan result',
@@ -381,7 +387,8 @@ async function captureText(): Promise<void> {
 
     await submitCompositionImage(
       image,
-      currentSession
+      currentSession,
+      'browser_camera'
     );
   } catch (error) {
     if (currentSession !== scanSession) {
@@ -432,7 +439,8 @@ async function handleNativeCameraChange(
 
     await submitCompositionImage(
       image,
-      currentSession
+      currentSession,
+      'native_camera'
     );
   } catch (error) {
     if (currentSession !== scanSession) {

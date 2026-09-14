@@ -13,6 +13,10 @@ dist
 dist-ssr
 coverage
 docs/
+.env
+.env.*
+!.env.example
+!**/.env.example
 *.local
 __pycache__/
 *.py[cod]
@@ -42,3 +46,7 @@ __screenshots__/
 *.timestamp-*-*.mjs
 
 .vercel
+
+# Rebuilt from regulatory JSON inputs and backend/db/regulatory_status_seed.json
+/toxicheck_regulatory_enriched.json
+/regulatory_review_report.json

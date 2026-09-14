@@ -55,19 +55,36 @@ def _load_embedded_ocr_module() -> ModuleType:
 
 
 class OcrService:
-    async def recognize_image(self, image_base64: str) -> OcrResult:
+    async def recognize_image(
+        self,
+        image_base64: str,
+        source: str = "unknown",
+    ) -> OcrResult:
         payload, image_format = _strip_data_url(image_base64)
+        logger.info(
+            "OCR image received source=%s image_format=%s payload_chars=%s",
+            source,
+            image_format,
+            len(payload),
+        )
 
         try:
             _validate_base64(payload)
         except Exception:
+            logger.warning(
+                "OCR image rejected source=%s reason=invalid_base64",
+                source,
+            )
             return OcrResult(
                 status="error",
                 message="Image payload is not valid base64.",
             )
 
         if settings.ocr_mode == "embedded":
-            return await self._recognize_embedded(payload)
+            return await self._recognize_embedded(
+                payload,
+                source=source,
+            )
 
         if settings.ocr_mode == "disabled":
             return OcrResult(
@@ -83,8 +100,9 @@ class OcrService:
 
         request_id = str(uuid.uuid4())
         logger.info(
-            "OCR request started mode=http request_id=%s image_format=%s",
+            "OCR request started mode=http request_id=%s source=%s image_format=%s",
             request_id,
+            source,
             image_format,
         )
 
@@ -98,7 +116,7 @@ class OcrService:
                         "image_format": image_format,
                         "locale": "ru",
                         "context": {
-                            "source": "toxicheck-composition-scan",
+                            "source": source,
                         },
                     },
                 )
@@ -151,8 +169,9 @@ class OcrService:
 
         if composition and not is_probable_composition_text(composition):
             logger.info(
-                "OCR composition rejected request_id=%s reason=not_probable text=%r",
+                "OCR composition rejected request_id=%s source=%s reason=not_probable text=%r",
                 request_id,
+                source,
                 composition,
             )
             composition = ""
@@ -177,15 +196,21 @@ class OcrService:
             "http",
             result,
             request_id=request_id,
+            source=source,
         )
 
         return result
 
-    async def _recognize_embedded(self, payload: str) -> OcrResult:
+    async def _recognize_embedded(
+        self,
+        payload: str,
+        source: str,
+    ) -> OcrResult:
         try:
             return await asyncio.to_thread(
                 self._recognize_embedded_sync,
                 payload,
+                source,
             )
         except Exception as error:
             return OcrResult(
@@ -193,12 +218,17 @@ class OcrService:
                 message=f"Embedded OCR failed: {error}",
             )
 
-    def _recognize_embedded_sync(self, payload: str) -> OcrResult:
+    def _recognize_embedded_sync(
+        self,
+        payload: str,
+        source: str,
+    ) -> OcrResult:
         start_time = time.time()
         request_id = str(uuid.uuid4())
         logger.info(
-            "OCR request started mode=embedded request_id=%s",
+            "OCR request started mode=embedded request_id=%s source=%s",
             request_id,
+            source,
         )
 
         embedded_ocr = _load_embedded_ocr_module()
@@ -226,8 +256,9 @@ class OcrService:
 
         if composition and not is_probable_composition_text(composition):
             logger.info(
-                "OCR composition rejected request_id=%s reason=not_probable text=%r",
+                "OCR composition rejected request_id=%s source=%s reason=not_probable text=%r",
                 request_id,
+                source,
                 composition,
             )
             composition = ""
@@ -246,6 +277,7 @@ class OcrService:
             "embedded",
             result,
             request_id=request_id,
+            source=source,
         )
 
         return result
@@ -255,11 +287,13 @@ class OcrService:
         mode: str,
         result: OcrResult,
         request_id: str,
+        source: str,
     ) -> None:
         logger.info(
-            "OCR result mode=%s request_id=%s status=%s confidence=%s processing_time_ms=%s",
+            "OCR result mode=%s request_id=%s source=%s status=%s confidence=%s processing_time_ms=%s",
             mode,
             request_id,
+            source,
             result.status,
             result.confidence,
             result.processing_time_ms,

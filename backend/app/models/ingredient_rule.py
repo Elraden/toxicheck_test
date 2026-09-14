@@ -11,10 +11,10 @@ from app.models.base import Base, TimestampMixin, UuidMixin
 class IngredientRule(UuidMixin, TimestampMixin, Base):
     __tablename__ = "ingredient_rules"
 
-    ingredient_id: Mapped[uuid.UUID] = mapped_column(
+    ingredient_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("ingredients.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     source_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -32,4 +32,3 @@ class IngredientRule(UuidMixin, TimestampMixin, Base):
 
     ingredient = relationship("Ingredient", back_populates="rules")
     source = relationship("RegulatorySource", back_populates="rules")
-

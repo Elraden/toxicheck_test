@@ -18,6 +18,15 @@ class VerdictEngine:
         highest_severity = self._highest_severity(reasons)
         risk_score = self._risk_score(highest_severity, len(reasons), len(unmatched))
 
+        if highest_severity == "neutral":
+            return ProductVerdict(
+                level="unknown", risk_score=0,
+                title="Недостаточно данных для оценки" if unmatched else "Предупреждений не найдено",
+                description=("Часть ингредиентов не найдена в справочнике. Это не подтверждает безопасность продукта."
+                             if unmatched else "По найденным правилам предупреждений нет. Допустимость применения зависит от количества и категории продукта."),
+                reasons=reasons,
+            )
+
         return ProductVerdict(
             level=self._level(highest_severity),
             risk_score=risk_score,
@@ -71,7 +80,8 @@ class VerdictEngine:
         if not ingredient.rules:
             return None
 
-        return ingredient.rules[0].explanation or ingredient.rules[0].title
+        return (ingredient.rules[0].assessment_note
+                or ingredient.rules[0].explanation or ingredient.rules[0].title)
 
     @staticmethod
     def _highest_severity(reasons: list[VerdictReason]) -> str:
@@ -136,4 +146,3 @@ class VerdictEngine:
             "attention": "В составе есть ингредиенты, требующие внимания.",
             "neutral": "В составе не найдено ингредиентов из списка повышенного риска.",
         }.get(severity, "Результат проверки сформирован.")
-

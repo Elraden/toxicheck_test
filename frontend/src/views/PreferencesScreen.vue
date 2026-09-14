@@ -1,148 +1,85 @@
 <script setup lang="ts">
-import {
-  computed,
-  onMounted,
-  ref,
-  watch
-} from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { Check, Search, ShieldAlert, X } from 'lucide-vue-next';
+import { getPreferenceIngredients, type PreferenceIngredient } from '@/services/backendApi';
+import { readPersonalExclusions, exclusionsStorageKey } from '@/services/personalExclusions';
 
-import {
-  Check,
-  Search,
-  ShieldAlert,
-  X
-} from 'lucide-vue-next';
-
-import {
-  ingredientPreferences,
-  type IngredientPreference
-} from '@/data/ingredients';
-
-const storageKey = 'toxicheck.personal-exclusions';
-
+const ingredientPreferences = ref<PreferenceIngredient[]>([]);
 const selectedIds = ref<string[]>([]);
 const searchQuery = ref('');
-const isLoaded = ref(false);
-
-const selectedIdSet = computed(() => {
-  return new Set(selectedIds.value);
-});
-
-const selectedIngredients = computed(() => {
-  return ingredientPreferences.filter((ingredient) =>
-    selectedIdSet.value.has(ingredient.id)
-  );
-});
-
+const loading = ref(true);
+const error = ref('');
+const storageError = ref('');
+const visibleLimit = ref(60);
+let controller: AbortController | undefined;
+const selectedIdSet = computed(() => new Set(selectedIds.value));
+const selectedIngredients = computed(() => selectedIds.value.map((id) =>
+  ingredientPreferences.value.find((ingredient) => ingredient.id === id) ||
+  { id, name: id, code: null, category: '', description: '', legacy_ids: [] }
+));
 const filteredIngredients = computed(() => {
-  const query = searchQuery.value
-    .trim()
-    .toLowerCase();
-
-  if (!query) {
-    return ingredientPreferences;
-  }
-
-  return ingredientPreferences.filter((ingredient) => {
-    return [
-      ingredient.name,
-      ingredient.code ?? '',
-      ingredient.category,
-      ingredient.description
-    ]
-      .join(' ')
-      .toLowerCase()
-      .includes(query);
-  });
+  const query = searchQuery.value.trim().toLocaleLowerCase();
+  return ingredientPreferences.value.filter((ingredient) =>
+    !query || [ingredient.name, ingredient.code || '', ingredient.category, ingredient.description]
+      .join(' ').toLocaleLowerCase().includes(query)
+  );
 });
+const visibleIngredients = computed(() => filteredIngredients.value.slice(0, visibleLimit.value));
+watch(searchQuery, () => { visibleLimit.value = 60; });
 
-function readSavedIds(): string[] {
-  const savedValue =
-    window.localStorage.getItem(storageKey);
-
-  if (!savedValue) {
-    return [];
-  }
-
+function persist(): void {
   try {
-    const parsedValue: unknown =
-      JSON.parse(savedValue);
-
-    if (!Array.isArray(parsedValue)) {
-      return [];
-    }
-
-    const availableIds = new Set(
-      ingredientPreferences.map((ingredient) =>
-        ingredient.id
-      )
-    );
-
-    return parsedValue.filter((value) => {
-      return (
-        typeof value === 'string' &&
-        availableIds.has(value)
-      );
-    });
+    window.localStorage.setItem(exclusionsStorageKey, JSON.stringify(selectedIds.value));
+    storageError.value = '';
   } catch {
-    return [];
+    storageError.value = 'Браузер не разрешил сохранить исключения. Они доступны только до закрытия страницы.';
   }
 }
 
-function saveSelectedIds(ids: string[]): void {
-  window.localStorage.setItem(
-    storageKey,
-    JSON.stringify(ids)
-  );
-}
-
-function toggleIngredient(
-  ingredient: IngredientPreference
-): void {
-  if (selectedIdSet.value.has(ingredient.id)) {
-    selectedIds.value = selectedIds.value.filter(
-      (id) => id !== ingredient.id
-    );
-
-    return;
+async function loadCatalog(): Promise<void> {
+  controller?.abort();
+  const current = new AbortController();
+  controller = current;
+  loading.value = true;
+  error.value = '';
+  try {
+    const catalog = await getPreferenceIngredients(current.signal);
+    if (current.signal.aborted) return;
+    ingredientPreferences.value = catalog;
+    const legacyIds = new Map(catalog.flatMap((item) =>
+      item.legacy_ids.map((id) => [id, item.id] as const)));
+    const migrated = [...new Set(selectedIds.value.map((id) => legacyIds.get(id) || id))];
+    if (JSON.stringify(migrated) !== JSON.stringify(selectedIds.value)) {
+      selectedIds.value = migrated;
+      persist();
+    }
+  } catch (reason) {
+    if (!current.signal.aborted) error.value = reason instanceof Error ? reason.message : 'Не удалось загрузить справочник';
+  } finally {
+    if (!current.signal.aborted) loading.value = false;
   }
-
-  selectedIds.value = [
-    ...selectedIds.value,
-    ingredient.id
-  ];
 }
 
+function toggleIngredient(ingredient: PreferenceIngredient): void {
+  if (selectedIdSet.value.has(ingredient.id)) removeIngredient(ingredient.id);
+  else {
+    selectedIds.value = [...selectedIds.value, ingredient.id];
+    persist();
+  }
+}
 function removeIngredient(id: string): void {
-  selectedIds.value = selectedIds.value.filter(
-    (selectedId) => selectedId !== id
-  );
+  selectedIds.value = selectedIds.value.filter((selected) => selected !== id);
+  persist();
 }
-
 function clearSelected(): void {
   selectedIds.value = [];
+  persist();
 }
-
 onMounted(() => {
-  selectedIds.value = readSavedIds();
-  isLoaded.value = true;
+  selectedIds.value = readPersonalExclusions();
+  void loadCatalog();
 });
-
-watch(
-  selectedIds,
-
-  (ids) => {
-    if (!isLoaded.value) {
-      return;
-    }
-
-    saveSelectedIds(ids);
-  },
-
-  {
-    deep: true
-  }
-);
+onBeforeUnmount(() => controller?.abort());
 </script>
 
 <template>
@@ -210,6 +147,13 @@ watch(
       </p>
     </section>
 
+    <p v-if="storageError" role="alert">{{ storageError }}</p>
+    <p v-if="loading" role="status">Загружаем ингредиенты...</p>
+    <div v-else-if="error" role="alert">
+      <p>{{ error }}</p>
+      <button type="button" class="selected-panel__clear" @click="loadCatalog">Повторить загрузку</button>
+    </div>
+
     <label class="preferences-search">
       <Search aria-hidden="true" />
 
@@ -233,10 +177,12 @@ watch(
 
       <div class="ingredients-list">
         <button
-          v-for="ingredient in filteredIngredients"
+          v-for="ingredient in visibleIngredients"
           :key="ingredient.id"
           type="button"
           class="ingredient-option"
+          role="checkbox"
+          :aria-checked="selectedIdSet.has(ingredient.id)"
           :class="{
             'ingredient-option--selected':
               selectedIdSet.has(ingredient.id)
@@ -268,6 +214,8 @@ watch(
           </span>
         </button>
       </div>
+      <p v-if="!loading && !error && !filteredIngredients.length">Ингредиенты не найдены</p>
+      <button v-if="visibleLimit < filteredIngredients.length" type="button" class="selected-panel__clear" @click="visibleLimit += 60">Показать ещё</button>
     </section>
   </main>
 </template>
@@ -538,4 +486,6 @@ watch(
     align-items: flex-start;
   }
 }
+.ingredient-option__name, .ingredient-option__meta { overflow-wrap: anywhere; }
+.selected-chip span { white-space: normal; overflow-wrap: anywhere; }
 </style>

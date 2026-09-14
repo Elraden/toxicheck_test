@@ -31,6 +31,66 @@ uvicorn app.main:app --reload
 
 Apply the PostgreSQL schema from `db/schema.sql` before using resolve endpoints.
 
+## Regulatory Data Import
+
+Keep both original regulatory JSON files in the repository root. Build and
+validate the enriched bundle first (no database connection required):
+
+```bash
+cd backend
+python -m app.db.build_regulatory_data
+python -m app.db.import_regulatory_data --validate-only
+```
+
+Then import from the same `backend` directory:
+
+```bash
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DB" \
+python -m app.db.import_regulatory_data
+```
+
+The importer applies `db/schema.sql`, then upserts regulatory sources,
+ingredients, aliases, and rules from `toxicheck_regulatory_enriched.json` in one
+transaction. Dates are converted to native PostgreSQL driver types. Raw text
+fragments are archived in the bundle; matching records from older imports are
+marked as reference-only. Explicitly retired, ambiguous aliases are removed.
+Other records are not deleted.
+
+The generated bundle and `regulatory_review_report.json` are ignored by Git;
+rebuild them after changing the original datasets or status seed. See
+`../README_regulatory_json.md` for evidence fields and unresolved source checks.
+
+For Railway:
+
+1. Add a PostgreSQL service in the Railway project.
+2. In the backend service, add a reference variable:
+
+```env
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+```
+
+3. Redeploy the backend so `python -m app.db.apply_schema` creates the schema.
+4. Temporarily enable Public Access for the Postgres service and copy
+   `DATABASE_PUBLIC_URL`.
+5. Run the importer locally:
+
+```bash
+cd backend
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DB" \
+python -m app.db.import_regulatory_data
+```
+
+PowerShell:
+
+```powershell
+cd backend
+$env:DATABASE_URL = "postgresql://USER:PASSWORD@HOST:PORT/DB"
+python -m app.db.import_regulatory_data
+Remove-Item Env:DATABASE_URL
+```
+
+6. Disable Public Access again after the import.
+
 ## OCR/ML Service
 
 Embedded mode keeps OCR inside the backend process:

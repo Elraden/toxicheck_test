@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -12,6 +14,13 @@ class IngredientRuleOut(BaseModel):
     title: str
     explanation: str | None = None
     citation: str | None = None
+    source_id: str | None = None
+    source_code: str | None = None
+    source_title: str | None = None
+    source_url: str | None = None
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    assessment_severity: str | None = None
+    assessment_note: str | None = None
 
 
 class MatchedIngredientOut(BaseModel):

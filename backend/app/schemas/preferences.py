@@ -7,6 +7,7 @@ class PreferenceIngredientOut(BaseModel):
     code: str | None = None
     category: str
     description: str
+    legacy_ids: list[str] = Field(default_factory=list)
 
 
 class SaveAnonymousPreferencesRequest(BaseModel):
@@ -16,4 +17,3 @@ class SaveAnonymousPreferencesRequest(BaseModel):
 class SaveAnonymousPreferencesResponse(BaseModel):
     status: str
     message: str
-

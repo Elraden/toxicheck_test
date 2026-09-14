@@ -6,7 +6,7 @@
   },
   "deploy": {
     "preDeployCommand": [
-      "python -m app.db.apply_schema"
+      "python -m app.db.import_regulatory_data"
     ],
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 300,

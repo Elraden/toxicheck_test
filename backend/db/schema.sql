@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS regulatory_sources (
 
 CREATE TABLE IF NOT EXISTS ingredient_rules (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  ingredient_id uuid NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+  ingredient_id uuid REFERENCES ingredients(id) ON DELETE CASCADE,
   source_id uuid NOT NULL REFERENCES regulatory_sources(id) ON DELETE RESTRICT,
   rule_type text NOT NULL,
   severity text NOT NULL,
@@ -59,8 +59,14 @@ CREATE INDEX IF NOT EXISTS ingredients_e_code_idx
   ON ingredients (e_code)
   WHERE e_code IS NOT NULL;
 
+CREATE INDEX IF NOT EXISTS ingredients_e_code_lower_idx
+  ON ingredients (lower(e_code));
+
 CREATE INDEX IF NOT EXISTS ingredient_aliases_normalized_idx
   ON ingredient_aliases (normalized_alias);
+
+CREATE INDEX IF NOT EXISTS ingredient_aliases_ingredient_source_idx
+  ON ingredient_aliases (ingredient_id, source);
 
 CREATE INDEX IF NOT EXISTS ingredient_aliases_trgm_idx
   ON ingredient_aliases
@@ -72,6 +78,20 @@ CREATE INDEX IF NOT EXISTS ingredient_rules_lookup_idx
 CREATE INDEX IF NOT EXISTS ingredient_rules_conditions_idx
   ON ingredient_rules
   USING gin (conditions);
+
+CREATE TABLE IF NOT EXISTS regulatory_source_fragments (
+  id uuid PRIMARY KEY,
+  source_id uuid NOT NULL REFERENCES regulatory_sources(id) ON DELETE RESTRICT,
+  payload jsonb NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE ingredient_rules
+  ALTER COLUMN ingredient_id DROP NOT NULL;
+
+CREATE INDEX IF NOT EXISTS ingredient_rules_global_lookup_idx
+  ON ingredient_rules (source_id, rule_type, effective_from, effective_to)
+  WHERE ingredient_id IS NULL;
 
 CREATE TABLE IF NOT EXISTS users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

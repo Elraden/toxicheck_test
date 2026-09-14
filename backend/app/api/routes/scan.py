@@ -33,11 +33,15 @@ async def scan_composition(
     payload: CompositionScanRequest,
 ) -> CompositionScanResponse:
     ocr = OcrService()
-    result = await ocr.recognize_image(payload.image_base64)
+    result = await ocr.recognize_image(
+        payload.image_base64,
+        source=payload.capture_source,
+    )
 
     return CompositionScanResponse(
         jobId=result.job_id,
         status=result.status,
+        captureSource=payload.capture_source,
         message=result.message or "OCR request completed.",
         recognizedText=result.raw_text,
         ingredientsText=result.composition_text,

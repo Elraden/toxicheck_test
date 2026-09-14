@@ -1,7 +1,9 @@
 import re
 import unicodedata
 
-E_CODE_RE = re.compile(r"(?:^|[^a-zа-я])e[\s-]?(\d{3,4}[a-z]?)", re.IGNORECASE)
+E_CODE_RE = re.compile(
+    r"(?<![\w])[eе][\s-]?(\d{3,4}[a-zа-я]?)(?![\w])", re.IGNORECASE
+)
 SEPARATORS_RE = re.compile(r"[,;]\s*")
 SPACES_RE = re.compile(r"\s+")
 
@@ -21,7 +23,8 @@ def normalize_e_code(value: str) -> str | None:
     if not match:
         return None
 
-    return f"E{match.group(1).upper()}"
+    suffix = match.group(1).lower().translate(str.maketrans({"а": "a", "б": "b", "в": "b", "с": "c"}))
+    return f"E{suffix}"
 
 
 def split_ingredients_text(value: str) -> list[str]:
@@ -30,4 +33,3 @@ def split_ingredients_text(value: str) -> list[str]:
         for part in SEPARATORS_RE.split(value)
         if part.strip()
     ]
-
