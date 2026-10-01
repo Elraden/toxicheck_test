@@ -18,6 +18,7 @@ COPY ocr_service.py ./ocr_service.py
 WORKDIR /app/backend
 
 RUN pip install --no-cache-dir -e ".[ocr]"
+RUN python -c "from app.main import app; assert app is not None"
 
 EXPOSE 10000
 
