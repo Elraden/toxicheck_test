@@ -1,7 +1,8 @@
-import asyncpg
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.db.session import get_catalog_session
 
 router = APIRouter(tags=["health"])
 
@@ -12,27 +13,12 @@ async def health_check() -> dict[str, str]:
 
 
 @router.get("/health/db")
-async def database_health_check() -> dict:
-    database_url = settings.database_url.replace(
-        "postgresql+asyncpg://",
-        "postgresql://",
-        1,
+async def database_health_check(session: AsyncSession = Depends(get_catalog_session)) -> dict:
+    tables = ("ingredients", "ingredient_aliases", "ingredient_rules", "regulatory_sources")
+    query = " UNION ALL ".join(
+        f"SELECT '{table}' AS name, count(*) AS total FROM catalog.{table}"
+        for table in tables
     )
-
-    try:
-        connection = await asyncpg.connect(database_url, timeout=5)
-        try:
-            await connection.fetchval("SELECT 1")
-            counts = {}
-            for table in ("ingredients", "ingredient_aliases", "ingredient_rules", "regulatory_sources"):
-                counts[table] = await connection.fetchval(f"SELECT count(*) FROM {table}")
-        finally:
-            await connection.close()
-    except Exception as error:
-        return {
-            "status": "error",
-            "database": "unavailable",
-            "errorType": error.__class__.__name__,
-        }
-
-    return {"status": "ok", "database": "available", "counts": counts}
+    rows = (await session.execute(text(query))).mappings().all()
+    return {"status": "ok", "database": "available", "schema": "catalog", "schema_version": 2,
+            "counts": {r["name"]: r["total"] for r in rows}}

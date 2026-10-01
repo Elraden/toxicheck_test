@@ -19,11 +19,12 @@ class VerdictEngine:
         risk_score = self._risk_score(highest_severity, len(reasons), len(unmatched))
 
         if highest_severity == "neutral":
+            incomplete = bool(unmatched) or not matched or any(i.severity == "unknown" for i in matched)
             return ProductVerdict(
                 level="unknown", risk_score=0,
-                title="Недостаточно данных для оценки" if unmatched else "Предупреждений не найдено",
-                description=("Часть ингредиентов не найдена в справочнике. Это не подтверждает безопасность продукта."
-                             if unmatched else "По найденным правилам предупреждений нет. Допустимость применения зависит от количества и категории продукта."),
+                title="Недостаточно данных для оценки" if incomplete else "Предупреждений не найдено",
+                description=("Для части состава нет оценки или точного совпадения в справочнике. Это не подтверждает безопасность продукта."
+                             if incomplete else "По найденным правилам предупреждений нет. Допустимость применения зависит от количества и категории продукта."),
                 reasons=reasons,
             )
 
@@ -48,7 +49,7 @@ class VerdictEngine:
         reasons: list[VerdictReason] = []
 
         for ingredient in matched:
-            if ingredient.severity != "neutral":
+            if ingredient.severity in {"attention", "avoid", "forbidden"}:
                 reasons.append(
                     VerdictReason(
                         severity=ingredient.severity,

@@ -13,14 +13,11 @@ WORKDIR /app
 
 COPY backend/pyproject.toml ./backend/pyproject.toml
 COPY backend/app ./backend/app
-COPY backend/db ./backend/db
 COPY ocr_service.py ./ocr_service.py
-COPY toxicheck_tr_ts_029_2012.json toxicheck_tr_ts_022_2011_rules.json ./
 
 WORKDIR /app/backend
 
 RUN pip install --no-cache-dir -e ".[ocr]"
-RUN python -m app.db.build_regulatory_data
 
 EXPOSE 10000
 

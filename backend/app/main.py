@@ -38,6 +38,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(SQLAlchemyError, database_error_handler)
     app.add_exception_handler(asyncpg.PostgresError, database_error_handler)
     app.add_exception_handler(ConnectionError, database_error_handler)
+    app.add_exception_handler(TimeoutError, database_error_handler)
 
     return app
 

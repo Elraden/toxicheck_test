@@ -208,8 +208,8 @@ onBeforeUnmount(() => controller?.abort());
               </span>
             </span>
 
-            <span class="ingredient-option__meta">
-              {{ ingredient.category }} · {{ ingredient.description }}
+            <span v-if="ingredient.category || ingredient.description" class="ingredient-option__meta">
+              {{ [ingredient.category, ingredient.description].filter(Boolean).join(' · ') }}
             </span>
           </span>
         </button>

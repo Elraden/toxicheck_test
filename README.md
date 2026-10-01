@@ -30,10 +30,10 @@ cd frontend
 npx vercel --prod --scope toxi-check
 ```
 
-In production, point the frontend to the Render backend with:
+In production, point the frontend to the Railway backend with:
 
 ```env
-VITE_API_BASE_URL=https://your-render-service.onrender.com/api
+VITE_API_BASE_URL=https://your-railway-service.up.railway.app/api
 ```
 
 ## Backend
@@ -44,11 +44,23 @@ Backend architecture and API foundation live in `backend/`.
 - Architecture notes: `docs/backend-architecture.md`
 - Backend details: `backend/README.md`
 
-Run backend stack:
+Run against the existing catalog (no local database required). Set
+`TOXICHECK_CATALOG_DATABASE_URL` in ignored `backend/.env`, then:
+
+```sh
+cd backend
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+An optional local backend stack is also available:
 
 ```sh
 docker compose -f docker-compose.backend.yml up --build
 ```
+
+A new local Postgres volume creates schema `catalog`, but starts empty. Import
+the catalog explicitly before analysis; an existing volume is not migrated
+by Docker initialization scripts. Do not delete a volume to switch catalogs.
 
 Backend API will be available at:
 
@@ -80,6 +92,7 @@ OPEN_FOOD_FACTS_BASE_URL=https://world.openfoodfacts.org
 OCR_MODE=embedded
 OCR_SERVICE_URL=
 DATABASE_URL=${{Postgres.DATABASE_URL}}
+TOXICHECK_CATALOG_DATABASE_URL=${{Postgres-hcbk.DATABASE_URL}}
 ```
 
 After Railway creates a public backend domain, copy its URL and set this variable in
@@ -91,17 +104,32 @@ VITE_API_BASE_URL=https://your-railway-service.up.railway.app/api
 
 Then redeploy Vercel.
 
-The Docker build creates the regulatory bundle from the two root JSON inputs
-and the seeds in `backend/db`. Railway's pre-deploy command imports it into
-the database specified by the backend's `DATABASE_URL`, in one transaction.
-Repeated imports update stable IDs without duplicating records. No local
-PostgreSQL is required. Use the private Railway variable reference above for
-the deployed backend; the public database URL is only for external imports.
+The API reads the already imported `catalog` schema, version 2, using a separate
+read-only connection. `TOXICHECK_CATALOG_DATABASE_URL` takes priority; if empty,
+the API uses `DATABASE_URL`, which must then point to the catalog database.
+Keep a separate `DATABASE_URL` for future application storage if needed.
+The Docker build and Railway pre-deploy no longer build or import legacy data.
+Remove any old pre-deploy command also configured manually in Railway Settings.
+Use the private database reference for Railway; a local API or importer needs
+the public database URL. No URL or credentials belong in frontend variables.
+See `README_catalog_railway.md` for explicit catalog imports.
 
 Check `/api/health/db` after deployment: it reports database availability and
 catalog row counts. The result page calls `/api/analysis` for barcode and OCR
 compositions, and preferences load `/api/preferences/catalog`. Neither screen
 uses a local risk catalog. Unknown ingredients remain visible as unknown.
+Found ingredients without rules have severity `unknown`, not a safety rating.
+Matching uses exact E-codes (including subtypes) and unique normalized aliases;
+ambiguous aliases and fuzzy matches cannot silently choose an ingredient.
+
+Read-only integration check against the configured catalog, in PowerShell:
+
+```powershell
+cd backend
+$env:TOXICHECK_DB_SMOKE = '1'
+python -m unittest discover -s tests -p test_database_smoke.py
+Remove-Item Env:TOXICHECK_DB_SMOKE
+```
 
 Vercel's `frontend/vercel.json` proxies `/api/*` to the Railway backend, so
 `VITE_API_BASE_URL` can be omitted in production for this deployment. Update

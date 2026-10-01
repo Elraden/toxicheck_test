@@ -29,67 +29,50 @@ pip install -e .
 uvicorn app.main:app --reload
 ```
 
-Apply the PostgreSQL schema from `db/schema.sql` before using resolve endpoints.
+Set `TOXICHECK_CATALOG_DATABASE_URL` in the ignored `backend/.env` to the populated
+catalog database. API reads use schema `catalog`, version 2, in read-only mode.
+An empty catalog setting falls back to `DATABASE_URL`. Existing legacy tables
+in `public` are not a substitute for the new schema. Do not apply `db/schema.sql`
+to the catalog database. Future application storage can use its own `DATABASE_URL`.
 
-## Regulatory Data Import
+## Catalog Data Import
 
-Keep both original regulatory JSON files in the repository root. Build and
-validate the enriched bundle first (no database connection required):
+Build and validate the local catalog without accessing a database:
+
+Catalog input/export snapshots are local artifacts, not part of the deployment.
+Supply the edited input dataset and OFF snapshot locally before rebuilding;
+the deployed API reads the already populated database and needs neither file.
 
 ```bash
 cd backend
-python -m app.db.build_regulatory_data
-python -m app.db.import_regulatory_data --validate-only
+python -m app.db.build_catalog
+python -m app.db.import_catalog --validate-only
 ```
 
-Then import from the same `backend` directory:
+Only when a database update is intended, import from the same directory:
 
 ```bash
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DB" \
-python -m app.db.import_regulatory_data
+python -m app.db.import_catalog --prompt-url
 ```
 
-The importer applies `db/schema.sql`, then upserts regulatory sources,
-ingredients, aliases, and rules from `toxicheck_regulatory_enriched.json` in one
-transaction. Dates are converted to native PostgreSQL driver types. Raw text
-fragments are archived in the bundle; matching records from older imports are
-marked as reference-only. Explicitly retired, ambiguous aliases are removed.
-Other records are not deleted.
+The importer applies `db/schema_catalog.sql` and replaces the catalog snapshot
+transactionally. `--replace-data` explicitly truncates data tables first, in
+the same transaction, retaining import history. It uses the dedicated catalog
+URL, not `DATABASE_URL`. The current remote catalog is already populated.
+See `../README_catalog_railway.md` for provenance and review caveats.
 
-The generated bundle and `regulatory_review_report.json` are ignored by Git;
-rebuild them after changing the original datasets or status seed. See
-`../README_regulatory_json.md` for evidence fields and unresolved source checks.
-
-For Railway:
-
-1. Add a PostgreSQL service in the Railway project.
-2. In the backend service, add a reference variable:
+For Railway, set this reference variable on the backend service (replace the
+service name if different):
 
 ```env
-DATABASE_URL=${{Postgres.DATABASE_URL}}
+TOXICHECK_CATALOG_DATABASE_URL=${{Postgres-hcbk.DATABASE_URL}}
 ```
 
-3. Redeploy the backend so `python -m app.db.apply_schema` creates the schema.
-4. Temporarily enable Public Access for the Postgres service and copy
-   `DATABASE_PUBLIC_URL`.
-5. Run the importer locally:
-
-```bash
-cd backend
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DB" \
-python -m app.db.import_regulatory_data
-```
-
-PowerShell:
-
-```powershell
-cd backend
-$env:DATABASE_URL = "postgresql://USER:PASSWORD@HOST:PORT/DB"
-python -m app.db.import_regulatory_data
-Remove-Item Env:DATABASE_URL
-```
-
-6. Disable Public Access again after the import.
+Redeploy the updated backend. Build/startup no longer import legacy data.
+Remove any manually configured old pre-deploy import command as well.
+Check `/api/health/db`: HTTP 200, schema `catalog`, schema version 2.
+The liveness endpoint `/api/health` does not depend on database availability.
+Local clients need the public database URL, while Railway uses its private URL.
 
 ## OCR/ML Service
 
@@ -135,6 +118,7 @@ extract composition, the result page still opens and shows "Состав не
 ## API
 
 - `GET /api/health`
+- `GET /api/health/db`
 - `POST /api/ingredients/resolve`
 - `POST /api/analysis`
 - `POST /api/scan/barcode`
@@ -156,10 +140,10 @@ services/open_food_facts.py
   External product lookup by barcode
 
 services/ingredient_resolver.py
-  E-code, exact alias, and pg_trgm similarity matching
+  Batched exact E-code and unique normalized alias matching in catalog v2
 
 services/verdict_engine.py
-  Product risk score, verdict level, and explanation reasons
+  Verdict and reasons; missing rules remain unknown, not safe
 
 services/analysis_service.py
   Resolve ingredients and build a verdict

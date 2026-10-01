@@ -312,7 +312,8 @@ const ingredientItems = computed<IngredientItem[]>(() => {
       rawText: item.raw_text, matchedBy: item.matched_by, rules: item.rules,
       risk: personal.has(item.ingredient_id) ? 'warning' :
         ['avoid', 'forbidden'].includes(item.severity) ? 'avoid' :
-        item.severity === 'attention' ? 'warning' : 'neutral'
+        item.severity === 'attention' ? 'warning' :
+        item.severity === 'unknown' || !item.rules.length ? 'unknown' : 'neutral'
     })),
     ...analysis.value.unmatched.map((name, index): IngredientItem => ({
       id: `unmatched-${index}`, name, risk: 'unknown', rules: []
@@ -549,7 +550,7 @@ onBeforeUnmount(() => {
               </div>
 
               <span class="ingredient-card__badge" :class="`ingredient-card__badge--${item.risk}`">
-                {{ getRiskLabel(item.risk) }}
+                {{ item.risk === 'unknown' && item.matchedBy ? 'Оценки нет' : getRiskLabel(item.risk) }}
               </span>
 
 

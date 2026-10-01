@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import get_db_session
+from app.db.session import get_catalog_session
 from app.schemas.analysis import AnalyzeIngredientsRequest, AnalyzeIngredientsResponse
 from app.services.analysis_service import AnalysisService
 
@@ -11,7 +11,7 @@ router = APIRouter()
 @router.post("", response_model=AnalyzeIngredientsResponse)
 async def analyze_ingredients(
     payload: AnalyzeIngredientsRequest,
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_catalog_session),
 ) -> AnalyzeIngredientsResponse:
     service = AnalysisService(session)
 
@@ -20,4 +20,3 @@ async def analyze_ingredients(
         preferences=payload.preferences,
         product=payload.product,
     )
-

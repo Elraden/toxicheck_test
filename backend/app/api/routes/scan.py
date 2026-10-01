@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import get_db_session
+from app.db.session import get_catalog_session
 from app.schemas.scan import (
     BarcodeScanRequest,
     BarcodeScanResponse,
@@ -18,7 +18,7 @@ router = APIRouter()
 @router.post("/barcode", response_model=BarcodeScanResponse)
 async def scan_barcode(
     payload: BarcodeScanRequest,
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_catalog_session),
 ) -> BarcodeScanResponse:
     service = ScanService(session)
 
