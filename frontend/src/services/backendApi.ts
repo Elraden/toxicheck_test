@@ -15,7 +15,7 @@ export type IngredientRule = {
   source_title: string | null;
   source_url: string | null;
   assessment_note: string | null;
-  conditions: { evidence?: Array<{
+  conditions: { primary_basis_required?: boolean; production_ready?: boolean | null; evidence?: Array<{
     url: string;
     locator: string;
     verification_status: string;
@@ -82,6 +82,40 @@ export function analyzeIngredients(ingredientsText: string, excludedIngredientId
 
 export function getPreferenceIngredients(signal?: AbortSignal) {
   return request<PreferenceIngredient[]>('/preferences/catalog', { signal });
+}
+
+export type IngredientSummary = {
+  id: string;
+  name: string;
+  code: string | null;
+  category: string | null;
+  severity: string;
+};
+
+export type IngredientPage = {
+  items: IngredientSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type IngredientDetail = IngredientSummary & {
+  name_en: string | null;
+  description: string | null;
+  full_description: string | null;
+  functions: string[];
+  origins: string[];
+  aliases: string[];
+  rules: IngredientRule[];
+};
+
+export function getIngredients(q: string, kind: string, offset: number, signal?: AbortSignal) {
+  const params = new URLSearchParams({ q, kind, offset: String(offset), limit: '30' });
+  return request<IngredientPage>(`/ingredients?${params}`, { signal });
+}
+
+export function getIngredient(id: string, signal?: AbortSignal) {
+  return request<IngredientDetail>(`/ingredients/${encodeURIComponent(id)}`, { signal });
 }
 
 export type CompositionScanResponse = {

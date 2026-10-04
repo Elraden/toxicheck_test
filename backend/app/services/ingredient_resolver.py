@@ -33,16 +33,23 @@ class IngredientResolver:
         matched = []
         for raw, match in matches:
             identifier = str(match["ingredient_id"])
-            rules = [assess_rule(rule, matched_by=match["matched_by"])
-                     for rule in rules_by_ingredient.get(identifier, [])]
-            rules.sort(key=lambda r: {"forbidden": 3, "avoid": 2, "attention": 1}.get(
-                r.assessment_severity, 0), reverse=True)
+            rules = self.assess_rules(rules_by_ingredient.get(identifier, []), match["matched_by"])
             matched.append(MatchedIngredientOut(
                 ingredient_id=identifier, name=match["name"], code=match["code"],
                 raw_text=raw, matched_by=match["matched_by"], match_score=match["match_score"],
-                severity=self._highest_severity(rules), rules=rules,
+                severity=self.highest_severity(rules), rules=rules,
             ))
         return ResolveIngredientsResponse(matched=matched, unmatched=unmatched)
+
+    async def catalog_rules(self, ingredient_ids: list[str]) -> dict[str, list[IngredientRuleOut]]:
+        return {identifier: self.assess_rules(rules, "ingredient_id")
+                for identifier, rules in (await self._load_rules(ingredient_ids)).items()}
+
+    @staticmethod
+    def assess_rules(rules: list[IngredientRuleOut], matched_by: str) -> list[IngredientRuleOut]:
+        assessed = [assess_rule(rule, matched_by=matched_by) for rule in rules]
+        return sorted(assessed, key=lambda r: {"forbidden": 3, "avoid": 2, "attention": 1}.get(
+            r.assessment_severity, 0), reverse=True)
 
     async def _match_codes(self, codes: list[str]) -> dict:
         if not codes:
@@ -135,7 +142,7 @@ class IngredientResolver:
         return rules
 
     @staticmethod
-    def _highest_severity(rules: list[IngredientRuleOut]) -> str:
+    def highest_severity(rules: list[IngredientRuleOut]) -> str:
         weights = {"unknown": -1, "neutral": 0, "attention": 1, "avoid": 2, "forbidden": 3}
         return max(
             (rule.assessment_severity or ("neutral" if rule.severity == "regulatory" else rule.severity)

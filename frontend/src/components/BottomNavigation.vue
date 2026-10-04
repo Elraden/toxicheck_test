@@ -3,11 +3,13 @@ import {
   House,
   Clock3,
   ScanLine,
-  ChartColumn,
+  BookOpen,
   Settings
 } from 'lucide-vue-next';
 
 import BottomNavigationItem from './ui/BottomNavigationItem.vue';
+import { useRoute } from 'vue-router';
+const route = useRoute();
 </script>
 
 <template>
@@ -30,9 +32,9 @@ import BottomNavigationItem from './ui/BottomNavigationItem.vue';
       </template>
     </BottomNavigationItem>
 
-    <BottomNavigationItem label="Сравнить" :to="{ name: 'compare' }">
+    <BottomNavigationItem label="База знаний" :to="{ name: 'knowledge' }" :class="{ 'knowledge-active': route.name === 'ingredient' }">
       <template #icon>
-        <ChartColumn />
+        <BookOpen />
       </template>
     </BottomNavigationItem>
 
@@ -45,6 +47,7 @@ import BottomNavigationItem from './ui/BottomNavigationItem.vue';
 </template>
 
 <style scoped>
+.knowledge-active { color: #25a777; }
 .bottom-navigation {
   max-width: 480px;
   position: fixed;

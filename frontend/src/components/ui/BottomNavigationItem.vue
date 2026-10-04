@@ -36,7 +36,8 @@ const { label, to, variant = 'default' } = defineProps<NavigationItemProps>();
   justify-content: center;
   gap: 4px;
   min-width: 0;
-  padding: 8px 4px;
+  height: 56px;
+  padding: 0;
   color: #98a5a0;
   font-size: 11px;
   line-height: 1;
@@ -58,7 +59,10 @@ const { label, to, variant = 'default' } = defineProps<NavigationItemProps>();
 }
 
 .navigation-item__label {
-  white-space: nowrap;
+  text-align: center;
+  min-height: 26px;
+  line-height: 13px;
+  overflow-wrap: anywhere;
 }
 
 .navigation-item--active {

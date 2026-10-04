@@ -4,7 +4,8 @@ import WelcomeView from "./views/WelcomeView.vue";
 import HomeView from "./views/HomeView.vue";
 import AppLayout from "./layouts/AppLayout.vue";
 import HistoryScreen from "./views/HistoryScreen.vue";
-import CompareScreen from "./views/CompareScreen.vue";
+import KnowledgeView from "./views/KnowledgeView.vue";
+import IngredientView from "./views/IngredientView.vue";
 import PreferencesScreen from "./views/PreferencesScreen.vue";
 import ScannerView from "./views/ScannerView.vue";
 import ProductResultView from "./views/ProductResultView.vue";
@@ -42,7 +43,11 @@ export const router = createRouter({
   },
   {
     path: "/compare",
-    redirect: { name: "compare" }
+    redirect: { name: "knowledge" }
+  },
+  {
+    path: "/knowledge",
+    redirect: { name: "knowledge" }
   },
   {
     path: "/preferences",
@@ -79,7 +84,17 @@ export const router = createRouter({
       {
         path: "compare",
         name: "compare",
-        component: CompareScreen
+        redirect: { name: "knowledge" }
+      },
+      {
+        path: "knowledge",
+        name: "knowledge",
+        component: KnowledgeView
+      },
+      {
+        path: "knowledge/:id",
+        name: "ingredient",
+        component: IngredientView
       },
       {
         path: "preferences",
@@ -90,5 +105,8 @@ export const router = createRouter({
   }
 
 ],
-  history: createWebHistory()
+  history: createWebHistory(),
+  scrollBehavior(_to, _from, savedPosition) {
+    return savedPosition || { top: 0 };
+  }
 });

@@ -39,3 +39,28 @@ class ResolveIngredientsResponse(BaseModel):
 
     matched: list[MatchedIngredientOut]
     unmatched: list[str]
+
+
+class IngredientSummary(BaseModel):
+    id: str
+    name: str
+    code: str | None = None
+    category: str | None = None
+    severity: str
+
+
+class IngredientPage(BaseModel):
+    items: list[IngredientSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class IngredientDetail(IngredientSummary):
+    name_en: str | None = None
+    description: str | None = None
+    full_description: str | None = None
+    functions: list[str] = Field(default_factory=list)
+    origins: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    rules: list[IngredientRuleOut] = Field(default_factory=list)

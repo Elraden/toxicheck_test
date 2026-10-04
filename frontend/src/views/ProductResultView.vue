@@ -541,7 +541,11 @@ onBeforeUnmount(() => {
             <article v-for="item in ingredientItems" :key="item.id" class="ingredient-card">
               <div class="ingredient-card__main">
                 <h3 class="ingredient-card__name">
-                  {{ item.name }}
+                  <RouterLink v-if="item.matchedBy" :to="{ name: 'ingredient', params: { id: item.id } }" class="ingredient-card__link">
+                    {{ item.name }}
+                    <ChevronRight class="ingredient-card__arrow" aria-hidden="true" />
+                  </RouterLink>
+                  <template v-else>{{ item.name }}</template>
                 </h3>
 
                 <span v-if="item.code" class="ingredient-card__code">
@@ -855,13 +859,21 @@ onBeforeUnmount(() => {
 }
 
 .ingredient-card {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   min-height: 48px;
-  padding: 10px 12px;
+  padding: 10px 32px 10px 12px;
 }
+
+.ingredient-card__link { color: inherit; text-decoration: none; }
+.ingredient-card__link::after { content: ''; position: absolute; inset: 0; border-radius: 12px; }
+.ingredient-card__link:focus-visible { outline: none; }
+.ingredient-card__link:focus-visible::after { outline: 2px solid #25a777; outline-offset: 2px; }
+.ingredient-card__link .ingredient-card__arrow { position: absolute; right: 10px; top: 16px; }
+.ingredient-evidence { position: relative; z-index: 1; }
 
 .ingredient-card__main {
   min-width: 0;

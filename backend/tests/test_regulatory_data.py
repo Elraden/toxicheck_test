@@ -79,7 +79,7 @@ class RegulatoryDataTests(unittest.TestCase):
 
     def test_regulatory_reference_is_not_risk_severity(self):
         rule = IngredientRuleOut(id="test", rule_type="maximum_use_level", severity="regulatory", title="Limit")
-        self.assertEqual(IngredientResolver._highest_severity([rule]), "neutral")
+        self.assertEqual(IngredientResolver.highest_severity([rule]), "neutral")
         self.assertEqual(assess_rule(rule, matched_by="e_code").assessment_severity, "neutral")
 
     def test_missing_citation_or_source_is_rejected(self):
