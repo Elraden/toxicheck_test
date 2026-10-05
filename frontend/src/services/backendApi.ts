@@ -15,10 +15,11 @@ export type IngredientRule = {
   source_title: string | null;
   source_url: string | null;
   assessment_note: string | null;
-  conditions: { primary_basis_required?: boolean; production_ready?: boolean | null; evidence?: Array<{
+  conditions: { regulatory_status?: string; verification_status?: string; primary_basis_required?: boolean; production_ready?: boolean | null; evidence?: Array<{
     url: string;
     locator: string;
     verification_status: string;
+    source_title?: string;
   }> };
 };
 

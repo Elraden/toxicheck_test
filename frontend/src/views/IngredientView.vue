@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArrowLeft, Heart, FileText, FlaskConical, Leaf, Info, ExternalLink, ShieldQuestion } from 'lucide-vue-next';
+import { ArrowLeft, Heart, FileText, FlaskConical, Leaf, Info, ShieldQuestion } from 'lucide-vue-next';
 import IngredientSafetyBadge from '@/components/IngredientSafetyBadge.vue';
+import IngredientRules from '@/components/IngredientRules.vue';
 import { getIngredient, type IngredientDetail } from '@/services/backendApi';
 
 const route = useRoute();
@@ -15,14 +16,17 @@ const favoriteKey = 'toxicheck.favorite-ingredients';
 const favorites = ref<string[]>(readFavorites());
 let controller: AbortController | undefined;
 const favorite = computed(() => ingredient.value ? favorites.value.includes(ingredient.value.id) : false);
+const description = computed(() => ingredient.value?.full_description?.trim() || ingredient.value?.description?.trim());
+const functions = computed(() => ingredient.value?.functions.filter(value => value.trim()).join(', ') || ingredient.value?.category?.trim());
+const origins = computed(() => ingredient.value?.origins.filter(value => value.trim()).join(', '));
 const assessmentText = computed(() => {
   if (!ingredient.value || ingredient.value.severity === 'unknown') {
-    return 'В базе пока нет действующих правил для оценки этого ингредиента. Это не означает, что он безопасен или вреден.';
+    return 'Недостаточно данных для оценки.';
   }
   if (ingredient.value.severity === 'neutral') {
-    return 'В действующих правилах базы нет предупреждений. Допустимость применения зависит от продукта и условий использования; это не гарантия безопасности для каждого человека.';
+    return 'Учитывайте условия применения и личные ограничения.';
   }
-  return 'В базе есть ограничения или предупреждения. Условия применения и степень подтверждения приведены ниже.';
+  return 'Есть ограничения или предупреждения.';
 });
 
 function readFavorites(): string[] {
@@ -42,13 +46,6 @@ function toggleFavorite() {
     favorites.value = next;
     favoriteError.value = '';
   } catch { favoriteError.value = 'Не удалось сохранить избранное в браузере'; }
-}
-
-function sourceUrl(value: string | null | undefined) {
-  try {
-    const url = new URL(value || '');
-    return ['https:', 'http:'].includes(url.protocol) ? url.href : undefined;
-  } catch { return undefined; }
 }
 
 function goBack() {
@@ -96,46 +93,30 @@ onBeforeUnmount(() => controller?.abort());
       <div class="detail-content">
         <section class="detail-section assessment-section">
           <ShieldQuestion class="section-icon section-icon--assessment" aria-hidden="true" />
-          <div><h3>Оценка по базе</h3><IngredientSafetyBadge :severity="ingredient.severity" /><p>{{ assessmentText }}</p></div>
+          <div><h3>Оценка</h3><IngredientSafetyBadge :severity="ingredient.severity" /><p>{{ assessmentText }}</p></div>
         </section>
         <section class="detail-section">
           <FileText class="section-icon section-icon--description" aria-hidden="true" />
           <div>
             <h3>Описание</h3>
-            <p class="description-text">{{ ingredient.description || ingredient.full_description || 'Описание пока не добавлено' }}</p>
-            <details v-if="ingredient.full_description && ingredient.description && ingredient.full_description !== ingredient.description">
-              <summary>Полное описание</summary><p class="description-text">{{ ingredient.full_description }}</p>
-            </details>
+            <p class="description-text">{{ description || 'Описание пока не добавлено' }}</p>
           </div>
         </section>
-        <section class="detail-section">
+        <section v-if="functions" class="detail-section">
           <FlaskConical class="section-icon section-icon--function" aria-hidden="true" />
-          <div><h3>Функция</h3><p>{{ ingredient.functions.join(', ') || ingredient.category || 'Не указана в базе' }}</p></div>
+          <div><h3>Функция</h3><p>{{ functions }}</p></div>
         </section>
-        <section class="detail-section">
+        <section v-if="origins" class="detail-section">
           <Leaf class="section-icon section-icon--origin" aria-hidden="true" />
-          <div><h3>Происхождение</h3><p>{{ ingredient.origins.join(', ') || 'Не указано в базе' }}</p></div>
+          <div><h3>Происхождение</h3><p>{{ origins }}</p></div>
         </section>
         <section v-if="ingredient.aliases.length" class="detail-section">
           <Info class="section-icon" aria-hidden="true" />
           <div><details><summary>Другие названия ({{ ingredient.aliases.length }})</summary><ul class="alias-list"><li v-for="alias in ingredient.aliases" :key="alias">{{ alias }}</li></ul></details></div>
         </section>
         <section v-if="ingredient.rules.length" class="rule-section">
-          <h3>Правила и источники</h3>
-          <article v-for="rule in ingredient.rules" :key="rule.id" class="rule">
-            <h4>{{ rule.title }}</h4>
-            <p>{{ rule.assessment_note || rule.explanation }}</p>
-            <p v-if="rule.conditions.primary_basis_required || rule.conditions.production_ready === false" class="verification-note">Нормативное основание требует дополнительной проверки.</p>
-            <p v-if="rule.citation" class="citation">{{ rule.citation }}</p>
-            <template v-if="rule.conditions.evidence?.length">
-              <div v-for="(evidence, index) in rule.conditions.evidence" :key="index" class="evidence">
-                <a v-if="sourceUrl(evidence.url)" :href="sourceUrl(evidence.url)" target="_blank" rel="noopener noreferrer">{{ evidence.locator || rule.source_title || 'Источник' }}<ExternalLink aria-hidden="true" /></a>
-                <span v-else>{{ evidence.locator }}</span>
-                <small v-if="evidence.verification_status !== 'verified_primary'">Подтверждение первоисточником не завершено</small>
-              </div>
-            </template>
-            <a v-else-if="sourceUrl(rule.source_url)" :href="sourceUrl(rule.source_url)" target="_blank" rel="noopener noreferrer">{{ rule.source_title || 'Источник' }}<ExternalLink aria-hidden="true" /></a>
-          </article>
+          <h3>Условия применения</h3>
+          <IngredientRules :rules="ingredient.rules" />
         </section>
       </div>
     </template>
@@ -168,14 +149,6 @@ onBeforeUnmount(() => controller?.abort());
 .detail-content summary { padding: 8px 0; cursor: pointer; color: #24684f; font-size: 14px; line-height: 1.5; }
 .alias-list { padding-left: 18px; font-size: 13px; line-height: 1.8; color: #52605a; }
 .rule-section { padding-top: 22px; }
-.rule { padding: 16px 0; border-bottom: 1px solid #dfe6e3; }
-.rule h4 { font-size: 14px; line-height: 1.6; }
-.rule a { color: #236c52; font-size: 13px; line-height: 1.6; }
-.rule a svg { display: inline; width: 13px; height: 13px; margin-left: 4px; vertical-align: middle; }
-.rule .verification-note { color: #875607; }
-.rule .citation { font-size: 12px; }
-.evidence { margin-top: 12px; }
-.evidence small { display: block; color: #66736e; font-size: 11px; line-height: 1.6; }
 .detail-state { padding: 40px 24px; text-align: center; font-size: 14px; line-height: 1.6; }
 .retry-button { margin-top: 12px; padding: 10px; border: 0; color: #167759; background: transparent; font: inherit; cursor: pointer; }
 .favorite-error { padding: 12px 20px; color: #a42e38; font-size: 13px; }
