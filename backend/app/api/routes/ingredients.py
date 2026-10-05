@@ -26,11 +26,12 @@ async def resolve_ingredients(
 async def list_ingredients(
     q: str = Query(default="", max_length=200),
     kind: Literal["all", "additives", "foods"] = "all",
+    status: Literal["all", "neutral", "attention", "restricted", "unknown"] = "all",
     limit: int = Query(default=30, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_catalog_session),
 ) -> IngredientPage:
-    return await IngredientCatalog(session).list(q, kind, limit, offset)
+    return await IngredientCatalog(session).list(q, kind, limit, offset, status=status)
 
 
 @router.get("/{ingredient_id}", response_model=IngredientDetail)

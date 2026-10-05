@@ -11,7 +11,7 @@ class IngredientCatalog:
         self.session = session
         self.resolver = IngredientResolver(session)
 
-    async def list(self, query: str, kind: str, limit: int, offset: int) -> IngredientPage:
+    async def list(self, query: str, kind: str, limit: int, offset: int, *, status: str = "all") -> IngredientPage:
         # Position searches treat SQL wildcard characters as ordinary text.
         where = """
             i.is_active
@@ -26,14 +26,32 @@ class IngredientCatalog:
         """
         params = {"query": query.strip().lower(), "normalized": normalize_text(query),
                   "code": (normalize_e_code(query) or query.strip()).lower(), "kind": kind}
-        total = await self.session.scalar(text(f"SELECT count(*) FROM catalog.ingredients i WHERE {where}"), params)
+        rules = None
+        if status != "all":
+            # Assess the entire matching set before pagination using the same rules as detail/scan.
+            candidates = await self.session.execute(text(
+                f"SELECT i.id::text AS id FROM catalog.ingredients i WHERE {where}"
+            ), params)
+            ids = list(candidates.scalars().all())
+            rules = await self.resolver.catalog_rules(ids)
+            severities = {"avoid", "forbidden"} if status == "restricted" else {status}
+            matching_ids = [identifier for identifier in ids
+                            if self.resolver.highest_severity(rules.get(identifier, [])) in severities]
+            total = len(matching_ids)
+            if not total:
+                return IngredientPage(total=0, limit=limit, offset=offset, items=[])
+            where += " AND i.id = ANY(CAST(:matching_ids AS uuid[]))"
+            params["matching_ids"] = matching_ids
+        else:
+            total = await self.session.scalar(text(f"SELECT count(*) FROM catalog.ingredients i WHERE {where}"), params)
         result = await self.session.execute(text(f"""
             SELECT i.id::text AS id, i.canonical_name_ru AS name, i.e_code AS code, i.category
             FROM catalog.ingredients i WHERE {where}
             ORDER BY lower(i.canonical_name_ru), i.id LIMIT :limit OFFSET :offset
         """), {**params, "limit": limit, "offset": offset})
         rows = [dict(row) for row in result.mappings().all()]
-        rules = await self.resolver.catalog_rules([row["id"] for row in rows])
+        if rules is None:
+            rules = await self.resolver.catalog_rules([row["id"] for row in rows])
         return IngredientPage(total=total, limit=limit, offset=offset, items=[
             IngredientSummary(**row, severity=self.resolver.highest_severity(rules.get(row["id"], [])))
             for row in rows

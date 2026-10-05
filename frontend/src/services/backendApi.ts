@@ -110,8 +110,8 @@ export type IngredientDetail = IngredientSummary & {
   rules: IngredientRule[];
 };
 
-export function getIngredients(q: string, kind: string, offset: number, signal?: AbortSignal) {
-  const params = new URLSearchParams({ q, kind, offset: String(offset), limit: '30' });
+export function getIngredients(q: string, kind: string, offset: number, signal?: AbortSignal, status = 'all') {
+  const params = new URLSearchParams({ q, kind, status, offset: String(offset), limit: '30' });
   return request<IngredientPage>(`/ingredients?${params}`, { signal });
 }
 

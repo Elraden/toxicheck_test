@@ -9,6 +9,7 @@ const route = useRoute();
 const router = useRouter();
 const query = ref('');
 const kind = ref('all');
+const status = ref('all');
 const page = ref<IngredientPage | null>(null);
 const loading = ref(false);
 const error = ref('');
@@ -28,7 +29,7 @@ async function load() {
   error.value = '';
   page.value = null;
   try {
-    const result = await getIngredients(query.value, kind.value, readOffset(), request.signal);
+    const result = await getIngredients(query.value, kind.value, readOffset(), request.signal, status.value);
     if (!request.signal.aborted) page.value = result;
   } catch (cause) {
     if (!request.signal.aborted) error.value = cause instanceof Error ? cause.message : 'Не удалось загрузить ингредиенты';
@@ -42,6 +43,7 @@ function navigate(offset = 0) {
   const target = { name: 'knowledge', query: {
     ...(query.value.trim() ? { q: query.value.trim() } : {}),
     ...(kind.value !== 'all' ? { kind: kind.value } : {}),
+    ...(status.value !== 'all' ? { status: status.value } : {}),
     ...(offset ? { offset: String(offset) } : {})
   } };
   if (router.resolve(target).fullPath === route.fullPath) void load();
@@ -63,6 +65,7 @@ watch(() => route.query, () => {
   clearTimeout(timer);
   query.value = typeof route.query.q === 'string' ? route.query.q.slice(0, 200) : '';
   kind.value = ['additives', 'foods'].includes(String(route.query.kind)) ? String(route.query.kind) : 'all';
+  status.value = ['neutral', 'attention', 'restricted', 'unknown'].includes(String(route.query.status)) ? String(route.query.status) : 'all';
   void load();
 }, { immediate: true });
 
@@ -83,12 +86,24 @@ onBeforeUnmount(() => { clearTimeout(timer); controller?.abort(); });
         <button v-if="query" class="icon-button" type="button" aria-label="Очистить поиск" title="Очистить поиск" @click="query = ''; search()"><X /></button>
       </form>
       <div class="catalog-filters">
+        <div class="catalog-filter">
         <label for="ingredient-kind">Ингредиенты</label>
         <select id="ingredient-kind" v-model="kind" @change="navigate()">
           <option value="all">Все</option>
           <option value="additives">Е-добавки</option>
           <option value="foods">Без E-кода</option>
         </select>
+        </div>
+        <div class="catalog-filter">
+          <label for="ingredient-status">Статус</label>
+          <select id="ingredient-status" v-model="status" @change="navigate()">
+            <option value="all">Все статусы</option>
+            <option value="neutral">Нет предупреждений</option>
+            <option value="attention">Внимание</option>
+            <option value="restricted">Ограничения</option>
+            <option value="unknown">Оценки нет</option>
+          </select>
+        </div>
       </div>
       <p v-if="loading" class="catalog-state" role="status">Загружаем ингредиенты...</p>
       <div v-else-if="error" class="catalog-state catalog-error" role="alert">
@@ -135,8 +150,10 @@ h1 { font-size: 20px; line-height: 1.3; overflow-wrap: anywhere; }
 .search-field input:focus { outline: none; }
 .search-field:focus-within { outline: 2px solid #25a777; outline-offset: 2px; }
 .search-field input::-webkit-search-cancel-button { display: none; }
-.catalog-filters { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0; font-size: 13px; }
-.catalog-filters select { min-width: 0; max-width: 65%; padding: 8px; font: inherit; color: inherit; border: 1px solid #cdd8d3; border-radius: 6px; background: #fff; }
+.catalog-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 12px; margin: 16px 0; font-size: 13px; }
+.catalog-filter { display: grid; gap: 6px; min-width: 0; }
+.catalog-filters select { width: 100%; min-width: 0; height: 42px; padding: 8px; font: inherit; color: inherit; border: 1px solid #cdd8d3; border-radius: 6px; background: #fff; }
+@media (max-width: 380px) { .catalog-filters { grid-template-columns: minmax(0, 1fr); } }
 .catalog-count, .catalog-category { color: #66736e; font-size: 12px; line-height: 1.5; }
 .catalog-count { margin-bottom: 12px; }
 .catalog-list { list-style: none; display: grid; gap: 10px; }
