@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { documentLabel, rulePresentation, sourceUrl } from '../src/services/ingredientPresentation.ts';
+import { alternativeNames, documentLabel, rulePresentation, sourceUrl } from '../src/services/ingredientPresentation.ts';
+
+test('alternative names omit E-code spellings, displayed names and repeated synonyms', () => {
+  const ingredient = { name: 'Сорбат калия', name_en: 'POTASSIUM SORBATE', code: 'E202',
+    aliases: ['E 202', 'E202', 'potassium sorbate', 'Е-202', 'e–202', 'калия сорбат', 'Сорбат калия', 'КАЛИЯ СОРБАТ', '  '] };
+  assert.deepEqual(alternativeNames(ingredient), ['калия сорбат']);
+  assert.equal(ingredient.aliases.length, 9);
+  assert.deepEqual(alternativeNames({ ...ingredient, code: 'E450(i)', aliases: ['Е 450 (I)', 'E450', 'другое имя'] }), ['E450', 'другое имя']);
+  assert.deepEqual(alternativeNames({ name: 'Вода', name_en: 'water', code: null, aliases: ['вода', 'Water', 'питьевая вода'] }), ['питьевая вода']);
+});
 
 function rule(status, overrides = {}) {
   return {

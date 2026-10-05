@@ -1,4 +1,18 @@
-import type { IngredientRule } from './backendApi';
+import type { IngredientDetail, IngredientRule } from './backendApi';
+
+export function alternativeNames(ingredient: IngredientDetail): string[] {
+  const normalize = (value: string) => value.normalize('NFKC').toLocaleLowerCase('ru')
+    .replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const codeKey = (value: string) => normalize(value).replace(/^е(?=\s*\d)/u, 'e').replace(/\s/g, '');
+  const code = ingredient.code ? codeKey(ingredient.code) : null;
+  const seen = new Set([ingredient.name, ingredient.name_en || ''].map(normalize));
+  return ingredient.aliases.filter(alias => {
+    const key = normalize(alias);
+    if (!key || seen.has(key) || (code && codeKey(alias) === code)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 export function rulePresentation(rule: IngredientRule) {
   const needsReview = Boolean(rule.conditions.primary_basis_required ||

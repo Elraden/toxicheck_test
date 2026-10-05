@@ -5,6 +5,7 @@ import { ArrowLeft, Heart, FileText, FlaskConical, Leaf, Info, ShieldQuestion } 
 import IngredientSafetyBadge from '@/components/IngredientSafetyBadge.vue';
 import IngredientRules from '@/components/IngredientRules.vue';
 import { getIngredient, type IngredientDetail } from '@/services/backendApi';
+import { alternativeNames } from '@/services/ingredientPresentation';
 
 const route = useRoute();
 const router = useRouter();
@@ -19,6 +20,7 @@ const favorite = computed(() => ingredient.value ? favorites.value.includes(ingr
 const description = computed(() => ingredient.value?.full_description?.trim() || ingredient.value?.description?.trim());
 const functions = computed(() => ingredient.value?.functions.filter(value => value.trim()).join(', ') || ingredient.value?.category?.trim());
 const origins = computed(() => ingredient.value?.origins.filter(value => value.trim()).join(', '));
+const aliases = computed(() => ingredient.value ? alternativeNames(ingredient.value) : []);
 const assessmentText = computed(() => {
   if (!ingredient.value || ingredient.value.severity === 'unknown') {
     return 'Недостаточно данных для оценки.';
@@ -110,9 +112,9 @@ onBeforeUnmount(() => controller?.abort());
           <Leaf class="section-icon section-icon--origin" aria-hidden="true" />
           <div><h3>Происхождение</h3><p>{{ origins }}</p></div>
         </section>
-        <section v-if="ingredient.aliases.length" class="detail-section">
+        <section v-if="aliases.length" class="detail-section">
           <Info class="section-icon" aria-hidden="true" />
-          <div><details><summary>Другие названия ({{ ingredient.aliases.length }})</summary><ul class="alias-list"><li v-for="alias in ingredient.aliases" :key="alias">{{ alias }}</li></ul></details></div>
+          <div><details><summary>Другие названия ({{ aliases.length }})</summary><ul class="alias-list"><li v-for="alias in aliases" :key="alias">{{ alias }}</li></ul></details></div>
         </section>
         <section v-if="ingredient.rules.length" class="rule-section">
           <h3>Условия применения</h3>
