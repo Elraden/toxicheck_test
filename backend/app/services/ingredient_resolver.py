@@ -132,7 +132,7 @@ class IngredientResolver:
             conditions["evidence"] = evidence[rule_id]
             if rule_id in transitions:
                 conditions["transition"] = transitions[rule_id]
-            severity = "attention" if row["regulatory_status"] in {"BANNED", "PHASE_OUT"} else "regulatory"
+            severity = {"BANNED": "forbidden", "PHASE_OUT": "attention"}.get(row["regulatory_status"], "regulatory")
             rules[str(row["ingredient_id"])].append(IngredientRuleOut(
                 id=rule_id, rule_type="regulatory_status", severity=severity,
                 title=row["title"], explanation=row["explanation"], citation=row["citation"],

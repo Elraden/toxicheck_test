@@ -14,8 +14,9 @@ def assess_rule(rule: IngredientRuleOut, *, matched_by: str, today: date | None 
     if conditions.get("match_policy") == "exact_only" and matched_by == "similarity":
         severity = "neutral"
         note = "Недостаточно точное совпадение для применения нормативного статуса."
-    elif conditions.get("regulatory_status") == "BANNED" and conditions.get("primary_basis_required"):
-        severity = "attention"
+    elif conditions.get("regulatory_status") == "BANNED" and conditions.get("evaluation") != "reference_only":
+        # Restriction status and the verification of its legal basis are separate.
+        severity = "forbidden"
     elif conditions.get("regulatory_status") == "PHASE_OUT":
         transition = conditions.get("transition", {})
         end = transition.get("transition_end")
