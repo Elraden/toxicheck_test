@@ -21,7 +21,7 @@ class BarcodeScanResponse(BaseModel):
 
 
 class CompositionScanRequest(BaseModel):
-    image_base64: str = Field(alias="imageBase64", min_length=1)
+    image_base64: str = Field(alias="imageBase64", min_length=1, max_length=16 * 1024 * 1024 + 128)
     capture_source: str = Field(default="unknown", alias="captureSource")
     preferences: AnalysisPreferences = Field(default_factory=AnalysisPreferences)
 
@@ -38,6 +38,7 @@ class CompositionScanResponse(BaseModel):
     allergens_text: str | None = Field(default=None, alias="allergensText")
     confidence: float | None = None
     processing_time_ms: int | None = Field(default=None, alias="processingTimeMs")
+    analysis: AnalyzeIngredientsResponse | None = None
 
 
 class ScanJobResponse(BaseModel):

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,10 +11,12 @@ from app.schemas.scan import (
     CompositionScanResponse,
     ScanJobResponse,
 )
+from app.services.analysis_service import AnalysisService
 from app.services.ocr_service import OcrService
 from app.services.scan_service import ScanService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/barcode", response_model=BarcodeScanResponse)
@@ -31,12 +35,24 @@ async def scan_barcode(
 @router.post("/composition", response_model=CompositionScanResponse)
 async def scan_composition(
     payload: CompositionScanRequest,
+    session: AsyncSession = Depends(get_catalog_session),
 ) -> CompositionScanResponse:
     ocr = OcrService()
     result = await ocr.recognize_image(
         payload.image_base64,
         source=payload.capture_source,
     )
+
+    analysis = None
+    if result.status == "success" and result.composition_text:
+        analysis = await AnalysisService(session).analyze(result.composition_text, payload.preferences)
+        logger.info(
+            "OCR catalog result source=%s matched=%s unmatched=%r verdict=%s",
+            payload.capture_source,
+            [{"id": item.ingredient_id, "raw": item.raw_text, "name": item.name,
+              "severity": item.severity} for item in analysis.matched],
+            analysis.unmatched, analysis.verdict.level,
+        )
 
     return CompositionScanResponse(
         jobId=result.job_id,
@@ -48,6 +64,7 @@ async def scan_composition(
         allergensText=result.allergens_text,
         confidence=result.confidence,
         processingTimeMs=result.processing_time_ms,
+        analysis=analysis,
     )
 
 

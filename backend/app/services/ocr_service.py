@@ -1,10 +1,9 @@
 import base64
 import asyncio
-import importlib.util
 import logging
+import threading
 import time
 import uuid
-from pathlib import Path
 from types import ModuleType
 
 import httpx
@@ -18,6 +17,7 @@ from app.services.composition_cleaner import (
 )
 
 logger = logging.getLogger(__name__)
+_embedded_lock = threading.Lock()
 
 
 def _strip_data_url(image_base64: str) -> tuple[str, str]:
@@ -35,23 +35,10 @@ def _validate_base64(value: str) -> None:
 
 
 def _load_embedded_ocr_module() -> ModuleType:
-    module_path = Path(__file__).resolve().parents[3] / "ocr_service.py"
+    # Lazy import keeps health checks independent of OCR dependencies and the DB.
+    from app.services import ocr_engine
 
-    if not module_path.exists():
-        raise RuntimeError("Embedded OCR module ocr_service.py was not found.")
-
-    spec = importlib.util.spec_from_file_location(
-        "toxicheck_embedded_ocr_service",
-        module_path,
-    )
-
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Embedded OCR module could not be loaded.")
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    return module
+    return ocr_engine
 
 
 class OcrService:
@@ -61,6 +48,8 @@ class OcrService:
         source: str = "unknown",
     ) -> OcrResult:
         payload, image_format = _strip_data_url(image_base64)
+        if len(payload) > 16 * 1024 * 1024:
+            return OcrResult(status="error", message="Изображение слишком большое. Максимум 12 МБ.")
         logger.info(
             "OCR image received source=%s image_format=%s payload_chars=%s",
             source,
@@ -206,16 +195,22 @@ class OcrService:
         payload: str,
         source: str,
     ) -> OcrResult:
+        # The worker owns the lock, even if the HTTP request is cancelled.
+        def recognize() -> OcrResult:
+            if not _embedded_lock.acquire(blocking=False):
+                return OcrResult(status="ocr_unavailable", message="Распознавание занято. Повторите через несколько секунд.")
+            try:
+                return self._recognize_embedded_sync(payload, source)
+            finally:
+                _embedded_lock.release()
+
         try:
-            return await asyncio.to_thread(
-                self._recognize_embedded_sync,
-                payload,
-                source,
-            )
+            return await asyncio.to_thread(recognize)
         except Exception as error:
+            logger.warning("Embedded OCR failed source=%s error_type=%s", source, type(error).__name__)
             return OcrResult(
                 status="ocr_unavailable",
-                message=f"Embedded OCR failed: {error}",
+                message="Не удалось обработать фотографию. Повторите снимок или попробуйте позже.",
             )
 
     def _recognize_embedded_sync(
@@ -240,12 +235,18 @@ class OcrService:
                 message="Embedded OCR could not decode image.",
             )
 
-        resized = embedded_ocr.resize_if_needed(image)
-        gray = embedded_ocr.cv2.cvtColor(
-            resized,
-            embedded_ocr.cv2.COLOR_BGR2GRAY,
-        )
+        gray, metrics = embedded_ocr.adaptive_enhance(image)
+        logger.info("OCR preprocessing request_id=%s source=%s metrics=%s", request_id, source, metrics)
         raw_text, confidence = embedded_ocr.run_ocr(gray)
+
+        if not raw_text.strip() or confidence < embedded_ocr.CONFIDENCE_RETAKE_THRESHOLD:
+            result = OcrResult(
+                status="needs_retake", rawText=clean_raw_ocr_text(raw_text), confidence=confidence,
+                processingTimeMs=round((time.time() - start_time) * 1000),
+                message="Текст распознан неуверенно. Сфотографируйте состав ближе и при хорошем освещении.",
+            )
+            self._log_ocr_result("embedded", result, request_id=request_id, source=source)
+            return result
 
         composition = clean_composition_text(
             embedded_ocr.extract_composition_block(raw_text)
@@ -253,15 +254,6 @@ class OcrService:
         allergens = clean_composition_text(
             embedded_ocr.extract_allergens_block(raw_text)
         )
-
-        if composition and not is_probable_composition_text(composition):
-            logger.info(
-                "OCR composition rejected request_id=%s source=%s reason=not_probable text=%r",
-                request_id,
-                source,
-                composition,
-            )
-            composition = ""
 
         result = OcrResult(
             status="success",

@@ -13,7 +13,6 @@ WORKDIR /app
 
 COPY backend/pyproject.toml ./backend/pyproject.toml
 COPY backend/app ./backend/app
-COPY ocr_service.py ./ocr_service.py
 
 WORKDIR /app/backend
 

@@ -122,6 +122,30 @@ Found ingredients without rules have severity `unknown`, not a safety rating.
 Matching uses exact E-codes (including subtypes) and unique normalized aliases;
 ambiguous aliases and fuzzy matches cannot silently choose an ingredient.
 
+### Embedded OCR and the catalog
+
+The Railway backend uses `backend/app/services/ocr_engine.py` and
+`ocr_preprocessing.py`, adapted from the ML prototype. Adaptive resizing and
+sharpening precede Tesseract; confidence below 0.45 requests another photo.
+Both camera types still use `POST /api/scan/composition`. Its response retains
+the text fields and adds `analysis` with catalog ingredient UUIDs, rules and
+the verdict. The result page can still re-analyze the text with personal preferences.
+
+OCR matching uses the same `IngredientResolver` and read-only catalog connection
+as barcode analysis (`TOXICHECK_CATALOG_DATABASE_URL`, schema version 2).
+There is no second dictionary, test database, import-time DB query, or schema
+migration. The prototype's `ingredient_db.py`, fuzzy hazard detector and public
+review endpoints are intentionally not used: uncertain text must not become a
+confirmed restriction. Unknown tokens remain visible; nested ingredients are
+split without losing E-code subtypes. The prototype's `decision_tree` training
+tables are not required; training/review storage is not enabled by this adaptation.
+
+Logs include camera source, preprocessing metrics, raw/clean text, catalog
+matches and unmatched tokens. Images and database credentials are not logged.
+OCR accepts JPEG/PNG/WebP up to 12 MiB and 25 million pixels; processing is capped
+at 3000 pixels per side with Tesseract timeouts and one active OCR per process.
+The root `ocr_service.py` is a legacy standalone prototype, not the Railway engine.
+
 Read-only integration check against the configured catalog, in PowerShell:
 
 ```powershell

@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from datetime import date
 
@@ -14,7 +15,8 @@ class IngredientResolver:
         self.session = session
 
     async def resolve(self, ingredients_text: str) -> ResolveIngredientsResponse:
-        parts = [(raw, normalize_e_code(raw), normalize_text(raw))
+        parts = [(raw, None if re.search(r"\b(?:без|without|free\s+from)\b", raw, re.IGNORECASE)
+                  else normalize_e_code(raw), normalize_text(raw))
                  for raw in split_ingredients_text(ingredients_text)]
         codes = await self._match_codes(sorted({code.lower() for _, code, _ in parts if code}))
         aliases = await self._match_aliases(sorted({alias for _, code, alias in parts if not code and alias}))

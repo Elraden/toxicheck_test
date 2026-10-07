@@ -12,10 +12,12 @@ Start as a modular monolith:
 - `recognition`: text normalization and ingredient matching.
 - `ocr`: integration boundary for future OCR/neural model processing.
 
-The OCR/ML model can run in two modes. For local monolith-style development,
-use embedded mode: the backend imports `../ocr_service.py` and runs recognition
-inside the main API process. For production or heavier ML runtime, use HTTP
-mode: the backend calls a separate OCR service URL.
+OCR runs in embedded mode on Railway: `app/services/ocr_engine.py` performs
+adaptive preprocessing and Tesseract recognition inside the main API process.
+The existing catalog resolver then reads ingredients, aliases and rules via
+`TOXICHECK_CATALOG_DATABASE_URL`. No prototype database or `decision_tree` tables
+are required. Low-confidence photos return `needs_retake` instead of a verdict.
+HTTP mode remains an optional adapter for a separately hosted OCR engine.
 
 See the diagram in `../docs/backend-architecture.md`.
 
