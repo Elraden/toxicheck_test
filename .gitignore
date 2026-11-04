@@ -21,6 +21,27 @@ docs/
 __pycache__/
 *.py[cod]
 
+# Local environments, credentials and database backups
+.venv/
+venv/
+.ssh/
+.aws/
+.codex/
+.agents/
+*.pem
+*.key
+*.p12
+*.pfx
+*.dump
+*.backup
+*.bak
+*.sqlite
+*.sqlite3
+.netrc
+.npmrc
+credentials.json
+service-account*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -50,3 +71,8 @@ __screenshots__/
 # Rebuilt from regulatory JSON inputs and backend/db/regulatory_status_seed.json
 /toxicheck_regulatory_enriched.json
 /regulatory_review_report.json
+
+# Resumable proE scraper cache (the exported JSON is tracked)
+/backend/data/proe_cache/
+# Private research photographs; never commit participant data.
+**/.research-photos/

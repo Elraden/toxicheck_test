@@ -1,0 +1,129 @@
+{
+  "reviewed_on": "2026-10-05",
+  "source_code": "RPN_ALTAI_2021_07_01",
+  "source_title": "Роспотребнадзор: О пищевых добавках, 01.07.2021",
+  "source_date": "2021-07-01",
+  "source_url": "https://04.rospotrebnadzor.ru/index.php/consumer-information/faq/14896-01072021.html",
+  "pdf_url": "https://04.rospotrebnadzor.ru/index.php/component/content/article/41-faq/14896-01072021.pdf#page=4",
+  "verification_note": "Перечень проверен в официальной публикации за 2021 год. Публикация не является нормативным актом; действующая редакция нормативного основания отдельно не подтверждена. Иностранные источники используются для описания вещества, а не для установления его статуса в России.",
+  "ingredients": [
+    {
+      "e_code": "E121",
+      "name_ru": "Цитрусовый красный 2",
+      "name_en": "Citrus Red 2",
+      "category": "Красители",
+      "origin": "Синтетическое",
+      "position": "1",
+      "description": "Синтетический азокраситель, известный применением для окрашивания кожуры апельсинов.",
+      "full_description": "Цитрусовый красный 2 — синтетический азокраситель. Его технологическое назначение связано с изменением цвета кожуры апельсинов, а не с приданием вкуса или повышением пищевой ценности плодов. В химических справочниках он также называется Citrus Red No. 2 и Solvent Red 80; это одно и то же вещество, а не разные добавки.",
+      "aliases": ["Цитрусовый красный", "Citrus Red No. 2", "Solvent Red 80", "C.I. Solvent Red 80"],
+      "references": [
+        {"title": "IARC: Citrus Red No. 2", "organization": "IARC / WHO", "url": "https://www.inchem.org/documents/iarc/vol08/citrusredno2.html", "locator": "Chemical Abstracts name; Synonyms"},
+        {"title": "PubChem: Citrus Red No. 2", "organization": "NCBI / NIH", "url": "https://pubchem.ncbi.nlm.nih.gov/compound/Citrus%20Red%20No.%202", "locator": "Uses; Food Additive"}
+      ]
+    },
+    {
+      "e_code": "E123",
+      "name_ru": "Амарант",
+      "name_en": "Amaranth",
+      "category": "Красители",
+      "origin": "Синтетическое",
+      "position": "2",
+      "description": "Синтетический красный азокраситель; не следует путать с растением амарант и его семенами.",
+      "full_description": "Амарант E123 — синтетический азокраситель, предназначенный для придания красной окраски. Представляет собой красно-коричневый порошок или гранулы, растворимые в воде и слабо растворимые в этаноле. Основное красящее соединение имеет форму тринатриевой соли. Название добавки не означает, что она получена из пищевого растения амарант: семена, мука и масло этого растения являются другими ингредиентами.",
+      "aliases": ["краситель амарант", "краситель amaranth", "CI Food Red 9", "C.I. 16185"],
+      "references": [
+        {"title": "JECFA: Amaranth, спецификация", "organization": "FAO / WHO JECFA", "url": "https://www.fao.org/fileadmin/user_upload/jecfa_additives/docs/Monograph1/Additive-018.pdf", "locator": "Стр. 1: Definition, Description, Functional uses, Solubility"}
+      ]
+    },
+    {
+      "e_code": "E128",
+      "name_ru": "Красный 2G",
+      "name_en": "Red 2G",
+      "category": "Красители",
+      "origin": "Синтетическое",
+      "position": "3",
+      "description": "Синтетический красный азокраситель, ранее применявшийся в отдельных мясных продуктах.",
+      "full_description": "Красный 2G — синтетический азокраситель, также известный как CI Food Red 10 и Azogeranine. Основное красящее соединение представляет собой динатриевую соль. Ранее его использовали для окрашивания отдельных колбасных изделий и мясных смесей. В организме краситель может превращаться в анилин; эта особенность стала основанием для пересмотра оценки его безопасности.",
+      "aliases": ["Красный 2 G", "CI Food Red 10", "Azogeranine"],
+      "references": [
+        {"title": "Директива 2008/128/EC: идентичность Red 2G", "organization": "European Commission", "url": "https://eur-lex.europa.eu/eli/dir/2008/128/oj/eng", "locator": "Annex I, E 128 RED 2G: Synonyms, Definition, Class; историческая спецификация, не подтверждение разрешения"},
+        {"title": "EFSA: оценка безопасности Red 2G, 09.07.2007", "organization": "EFSA", "url": "https://www.efsa.europa.eu/en/news/efsa-re-evaluates-safety-food-colours-and-adopts-first-opinion-food-colour-red", "locator": "Оценка превращения Red 2G в анилин; примечание 2 о прежних применениях"}
+      ]
+    },
+    {
+      "e_code": "E216",
+      "name_ru": "Пропилпарабен",
+      "name_en": "Propylparaben",
+      "category": "Консерванты",
+      "origin": "Синтетическое",
+      "position": "4",
+      "description": "Пропиловый эфир парагидроксибензойной кислоты с антимикробными свойствами.",
+      "full_description": "Пропилпарабен — пропиловый эфир парагидроксибензойной кислоты из группы парабенов. Представляет собой белое кристаллическое вещество почти без запаха. Его консервирующее действие связано с подавлением микроорганизмов. Обозначение E216 относится к самому эфиру; его натриевая соль является отдельной добавкой E217.",
+      "aliases": ["пропиловый эфир парагидроксибензойной кислоты", "пропиловый эфир пара-гидроксибензойной кислоты", "пропилпарагидроксибензоат", "propyl p-hydroxybenzoate", "propyl 4-hydroxybenzoate"],
+      "references": [
+        {"title": "JECFA: Propyl p-hydroxybenzoate", "organization": "FAO / WHO JECFA", "url": "https://inchem.org/documents/jecfa/jecmono/40abcj06.htm", "locator": "Synonyms, Chemical name, Description, Use; сведения об идентичности вещества, не действующая оценка допустимой дозы"}
+      ]
+    },
+    {
+      "e_code": "E217",
+      "name_ru": "Натриевая соль пропилпарабена",
+      "name_en": "Sodium propylparaben",
+      "category": "Консерванты",
+      "origin": "Синтетическое",
+      "position": "5",
+      "description": "Натриевая соль пропилового эфира парагидроксибензойной кислоты, относящаяся к консервантам.",
+      "full_description": "Натриевая соль пропилпарабена — солевая форма пропилового эфира парагидроксибензойной кислоты. Представляет собой белый или почти белый кристаллический порошок, способный поглощать влагу. Относится к парабеновым консервантам с антимикробным действием. E217 отличается от пропилпарабена E216 наличием натрия и не является метилпарабеном или этилпарабеном.",
+      "aliases": ["пропилпарабен натрия", "натрий пропилпарагидроксибензоат", "sodium propyl p-hydroxybenzoate", "sodium propyl paraben"],
+      "references": [
+        {"title": "Директива 96/77/EC: Sodium propyl p-hydroxybenzoate", "organization": "European Commission / FAOLEX", "url": "https://faolex.fao.org/docs/pdf/eur19536.pdf", "locator": "Стр. 11: E 217, Definition, Description; историческая спецификация, не подтверждение разрешения"},
+        {"title": "EFSA: использование парабенов в пищевых продуктах, 29.09.2004", "organization": "EFSA", "url": "https://www.efsa.europa.eu/en/news/efsa-advises-safety-paraben-usage-food", "locator": "Описание парабенов E214–E219 как антимикробных консервантов"}
+      ]
+    },
+    {
+      "e_code": "E240",
+      "name_ru": "Формальдегид",
+      "name_en": "Formaldehyde",
+      "category": "Консерванты",
+      "origin": null,
+      "position": "6, первая часть",
+      "description": "Метаналь: летучее вещество с резким запахом, обладающее консервирующими и дезинфицирующими свойствами.",
+      "full_description": "Формальдегид, или метаналь, — бесцветный газ с резким раздражающим запахом. Его часто используют в виде водного раствора, называемого формалином; раствор и чистое вещество не тождественны по составу. Формальдегид обладает консервирующими и дезинфицирующими свойствами, применяется при производстве смол и других промышленных материалов. Небольшие количества могут образовываться естественным путём; это не равнозначно намеренному внесению консерванта в пищу.",
+      "aliases": ["метаналь", "муравьиный альдегид", "methanal", "formic aldehyde"],
+      "references": [
+        {"title": "NIOSH Pocket Guide: Formaldehyde", "organization": "CDC / NIOSH", "url": "https://www.cdc.gov/niosh/npg/npgd0293.html", "locator": "Synonyms, Physical Description; примечание о водном растворе"},
+        {"title": "ATSDR: Formaldehyde", "organization": "CDC / ATSDR", "url": "https://wwwn.cdc.gov/TSP/substances/ToxSubstance.aspx?toxid=39", "locator": "Summary: свойства, естественное образование и применение"}
+      ]
+    },
+    {
+      "e_code": "E924a",
+      "name_ru": "Бромат калия",
+      "name_en": "Potassium bromate",
+      "category": "Вещества для обработки муки",
+      "origin": null,
+      "position": "6, вторая часть после E240",
+      "description": "Калиевая соль бромноватой кислоты, сильный окислитель, ранее применявшийся для обработки муки.",
+      "full_description": "Бромат калия — неорганическая соль с формулой KBrO3. Представляет собой белые кристаллы или порошок и является сильным окислителем. Его технологическое применение было связано с обработкой муки для хлебопечения. Бромат не следует путать с бромидом калия: это разные соединения с разными свойствами.",
+      "aliases": ["калий бромноватокислый", "potassium bromate"],
+      "references": [
+        {"title": "ICSC 1115: Potassium bromate", "organization": "ILO / WHO", "url": "https://chemicalsafety.ilo.org/dyn/icsc/showcard.display?p_card_id=1115&p_lang=en&p_version=2", "locator": "Physical & chemical information: Appearance, Chemical dangers, Formula"},
+        {"title": "JECFA: Potassium bromate, Food Additives Series 24", "organization": "WHO / JECFA", "url": "https://inchem.org/documents/jecfa/jecmono/v024je03.htm", "locator": "Историческое применение для обработки муки; старые допустимые уровни не используются как действующие"},
+        {"title": "JECFA, TRS 966: Evaluation of Certain Food Additives and Contaminants", "organization": "WHO / JECFA", "url": "https://www.inchem.org/documents/jecfa/jecmono/v966je01.pdf", "locator": "Раздел 2.4.3.1, Potassium bromate: отзыв спецификации"}
+      ]
+    },
+    {
+      "e_code": "E924b",
+      "name_ru": "Бромат кальция",
+      "name_en": "Calcium bromate",
+      "category": "Вещества для обработки муки",
+      "origin": null,
+      "position": "7",
+      "description": "Кальциевая соль бромноватой кислоты, известная как хлебопекарный улучшитель.",
+      "full_description": "Бромат кальция — неорганическое соединение с формулой Ca(BrO3)2, состоящее из ионов кальция и бромат-ионов. Его технологическое назначение связано с улучшением хлебопекарных свойств муки. По составу он отличается от бромата калия E924a и от бромида кальция; эти названия не являются взаимозаменяемыми.",
+      "aliases": ["кальций бромноватокислый", "calcium bromate"],
+      "references": [
+        {"title": "PubChem: Calcium bromate, CID 61478", "organization": "NCBI / NIH", "url": "https://pubchem.ncbi.nlm.nih.gov/compound/61478", "locator": "Molecular Formula, Names and Identifiers"}
+      ]
+    }
+  ]
+}

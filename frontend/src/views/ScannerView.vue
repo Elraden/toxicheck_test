@@ -13,7 +13,8 @@ import {
   useRouter
 } from 'vue-router';
 
-import { ArrowLeft } from 'lucide-vue-next';
+import { ArrowLeft, RotateCcw, RotateCw, Smartphone, RectangleHorizontal } from 'lucide-vue-next';
+import { prepareLabelImage } from '@/services/imageOrientation';
 
 import CameraControls from '@/components/CameraControls.vue';
 
@@ -34,6 +35,13 @@ const router = useRouter();
 const scannerStore = useScannerStore();
 const nativeCameraInput =
   ref<HTMLInputElement | null>(null);
+const orientation = ref<'landscape' | 'portrait'>('landscape');
+const pendingImage = ref('');
+const preparingImage = ref(false);
+const pendingSource = ref<'browser_camera' | 'native_camera'>('browser_camera');
+let originalImage = '';
+let rotation = 0;
+let imageVersion = 0;
 
 const {
   mode,
@@ -74,7 +82,7 @@ const {
 
 const modeSwitchDisabled = computed(() => {
   return (
-    status.value === 'starting' ||
+    preparingImage.value || status.value === 'starting' ||
     status.value === 'loading'
   );
 });
@@ -220,6 +228,8 @@ function createCompositionProduct(
       allergens: allergensText
     },
     ocr: {
+      request_id: result.requestId ?? crypto.randomUUID(),
+      tokens: result.tokens ?? [],
       status: result.status,
       capture_source:
         result.captureSource ?? 'unknown',
@@ -295,7 +305,7 @@ async function submitCompositionImage(
     return;
   }
 
-  if (result.status !== 'success') {
+  if (!['success', 'needs_retake'].includes(result.status)) {
     scannerStore.setStatus(
       'error',
       result.message ||
@@ -324,6 +334,11 @@ async function submitCompositionImage(
 async function startSelectedMode():
   Promise<void> {
   const currentSession = ++scanSession;
+
+  imageVersion++;
+  pendingImage.value = '';
+  originalImage = '';
+  preparingImage.value = false;
 
   stopCamera();
   scannerStore.resetForNewScan();
@@ -356,7 +371,7 @@ async function startSelectedMode():
       return;
     }
 
-    await openCamera();
+    await openCamera(orientation.value);
 
     if (currentSession !== scanSession) {
       stopCamera();
@@ -385,11 +400,7 @@ async function captureText(): Promise<void> {
 
     stopCamera();
 
-    await submitCompositionImage(
-      image,
-      currentSession,
-      'browser_camera'
-    );
+    await previewImage(image, 'browser_camera');
   } catch (error) {
     if (currentSession !== scanSession) {
       return;
@@ -408,7 +419,7 @@ async function captureText(): Promise<void> {
 function captureTextWithNativeCamera(): void {
   if (
     mode.value !== 'text' ||
-    status.value !== 'scanning'
+    modeSwitchDisabled.value
   ) {
     return;
   }
@@ -435,13 +446,11 @@ async function handleNativeCameraChange(
     const image =
       await readImageFileAsDataUrl(file);
 
+    if (currentSession !== scanSession) return;
+
     stopCamera();
 
-    await submitCompositionImage(
-      image,
-      currentSession,
-      'native_camera'
-    );
+    await previewImage(image, 'native_camera');
   } catch (error) {
     if (currentSession !== scanSession) {
       return;
@@ -458,6 +467,47 @@ async function handleNativeCameraChange(
 }
 
 function retryScanning(): void {
+  void startSelectedMode();
+}
+
+async function previewImage(image: string, source: 'browser_camera' | 'native_camera'): Promise<void> {
+  originalImage = image;
+  rotation = 0;
+  pendingSource.value = source;
+  scannerStore.setStatus('idle', 'Фото состава');
+  await rotatePreview(0);
+}
+
+async function rotatePreview(turns: number): Promise<void> {
+  const version = ++imageVersion;
+  const nextRotation = rotation + turns;
+  preparingImage.value = true;
+  try {
+    const image = await prepareLabelImage(originalImage, nextRotation);
+    if (version !== imageVersion) return;
+    rotation = nextRotation;
+    pendingImage.value = image;
+    scannerStore.setCapturedImage(image);
+  } catch {
+    if (version === imageVersion) scannerStore.setStatus('error', 'Не удалось открыть фото. Попробуйте JPEG или PNG.');
+  } finally {
+    if (version === imageVersion) preparingImage.value = false;
+  }
+}
+
+async function confirmImage(): Promise<void> {
+  if (!pendingImage.value || modeSwitchDisabled.value) return;
+  const session = scanSession;
+  try {
+    await submitCompositionImage(pendingImage.value, session, pendingSource.value);
+  } catch (error) {
+    if (session === scanSession) scannerStore.setStatus('error', error instanceof Error ? error.message : 'Не удалось распознать состав');
+  }
+}
+
+function selectOrientation(value: 'landscape' | 'portrait'): void {
+  if (modeSwitchDisabled.value || pendingImage.value || value === orientation.value) return;
+  orientation.value = value;
   void startSelectedMode();
 }
 
@@ -516,13 +566,14 @@ onBeforeUnmount(() => {
 
   // Делает незавершённые запросы неактуальными.
   scanSession += 1;
+  imageVersion++;
 
   stopCamera();
 });
 </script>
 
 <template>
-  <section class="scanner">
+  <section class="scanner" :class="{ 'scanner--text': mode === 'text' }">
     <header class="scanner__header">
       <button
         type="button"
@@ -552,10 +603,13 @@ onBeforeUnmount(() => {
           Состав
         </button>
       </div>
+    <div v-if="mode === 'text' && !pendingImage" class="scanner__orientation" role="group" aria-label="Ориентация фото">
+      <button type="button" :aria-pressed="orientation === 'landscape'" :disabled="modeSwitchDisabled" title="Горизонтально" aria-label="Горизонтально" @click="selectOrientation('landscape')"><RectangleHorizontal /></button>
+      <button type="button" :aria-pressed="orientation === 'portrait'" :disabled="modeSwitchDisabled" title="Вертикально" aria-label="Вертикально" @click="selectOrientation('portrait')"><Smartphone /></button>
+    </div>
     </header>
-
-    <div class="scanner__camera">
-      <video ref="videoElement" class="scanner__video" autoplay muted playsinline @loadedmetadata="handleVideoReady" />
+    <div class="scanner__camera" :class="{ 'scanner__camera--wide': mode === 'text' && orientation === 'landscape' }">
+      <video ref="videoElement" class="scanner__video" autoplay muted playsinline @loadedmetadata="handleVideoReady" @resize="handleVideoReady" />
 
       <img v-if="capturedImage" class="scanner__preview" :src="capturedImage" alt="Снимок состава продукта">
 
@@ -579,7 +633,8 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <p class="scanner__message">
+    <div class="scanner__actions">
+    <p class="scanner__message" role="status">
       {{ message }}
     </p>
 
@@ -592,10 +647,21 @@ onBeforeUnmount(() => {
 
     <button v-if="
       mode === 'text' &&
-      status === 'scanning'
+      !pendingImage && !modeSwitchDisabled
     " type="button" class="scanner__action scanner__action--secondary" @click="captureTextWithNativeCamera">
       Сфотографировать состав нативной камерой
     </button>
+
+    <template v-if="pendingImage">
+      <div class="scanner__orientation" role="group" aria-label="Поворот фото">
+        <button type="button" :disabled="modeSwitchDisabled" aria-label="Повернуть влево" title="Повернуть влево" @click="rotatePreview(-1)"><RotateCcw /></button>
+        <button type="button" :disabled="modeSwitchDisabled" aria-label="Повернуть вправо" title="Повернуть вправо" @click="rotatePreview(1)"><RotateCw /></button>
+      </div>
+      <button type="button" class="scanner__action" :disabled="modeSwitchDisabled" @click="confirmImage">Распознать состав</button>
+      <button type="button" class="scanner__action scanner__action--secondary" :disabled="modeSwitchDisabled" @click="retryScanning">Переснять</button>
+    </template>
+    <button v-else-if="status === 'error'" type="button" class="scanner__action" @click="retryScanning">Попробовать снова</button>
+    </div>
 
     <input
       ref="nativeCameraInput"
@@ -671,9 +737,6 @@ onBeforeUnmount(() => {
       </p>
     </section>
 
-    <button v-if="status === 'error'" type="button" class="scanner__action" @click="retryScanning">
-      Попробовать снова
-    </button>
 
   </section>
 </template>
@@ -859,4 +922,32 @@ onBeforeUnmount(() => {
   margin: 6px 0;
 }
 
+</style>
+
+<style scoped>
+.scanner__orientation { display: flex; gap: 8px; margin-bottom: 12px; }
+.scanner__header > .scanner__orientation { grid-column: 1 / -1; margin-bottom: 0; }
+.scanner__orientation button { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #cbd8d3; border-radius: 8px; color: #394b44; background: white; cursor: pointer; }
+.scanner__orientation button[aria-pressed="true"] { color: #176c56; border-color: #19845f; background: #e9f6f1; }
+.scanner__action { padding: 10px; overflow-wrap: anywhere; }
+button:disabled { opacity: .55; cursor: default; }
+.scanner--text .scanner__video, .scanner__preview { object-fit: contain; }
+.scanner__camera--wide { aspect-ratio: 4 / 3; }
+.scanner--text .scanner__frame { display: none; }
+@media (orientation: landscape) and (max-height: 600px) {
+  .scanner--text { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .6fr); gap: 10px 16px; padding: 12px 20px; align-items: start; }
+  .scanner__header { grid-column: 1 / -1; margin-bottom: 0; grid-template-columns: 40px minmax(0, 1fr) auto 210px; }
+  .scanner__title { font-size: 20px; }
+  .scanner__modes { grid-column: 4; grid-row: 1; }
+  .scanner__header > .scanner__orientation { grid-column: 3; grid-row: 1; margin: 0 8px; }
+  .scanner__camera { grid-column: 1; width: 100%; height: min(calc(100dvh - 160px), 300px); aspect-ratio: auto; }
+  .scanner__actions { grid-column: 2; }
+  .scanner__actions .scanner__orientation { margin-bottom: 0; }
+  .scanner__action { font-size: 13px; min-height: 44px; padding: 8px; margin-top: 6px; }
+  .scanner__message { margin: 0 0 4px; font-size: 12px; }
+  .scanner-debug { grid-column: 1 / -1; }
+}
+@media (orientation: landscape) and (max-height: 600px) and (max-width: 700px) {
+  .scanner__title { font-size: 16px; }
+}
 </style>

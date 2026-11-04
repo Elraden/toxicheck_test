@@ -31,6 +31,13 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix="/api")
 
+    @app.middleware("http")
+    async def private_responses(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith(("/api/auth/", "/api/admin/", "/api/preferences/me", "/api/research/")):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     async def database_error_handler(request, error):
         logging.getLogger(__name__).error("Database request failed: %s", type(error).__name__)
         return JSONResponse(status_code=503, content={"detail": "База ингредиентов временно недоступна. Повторите проверку позже."})

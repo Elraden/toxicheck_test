@@ -14,8 +14,9 @@ import re
 
 import asyncpg
 
-from app.db.build_catalog import COLUMNS, ROOT
+from app.db.build_catalog import ROOT
 from app.db.import_catalog import configured_database_url, normalize_database_url
+from app.db.schema_contract import CATALOG_DATA_TABLES
 
 DESCRIPTIONS = ROOT / "backend/db/ingredient_descriptions.json"
 CATALOG = ROOT / "toxicheck_catalog.json"
@@ -87,7 +88,7 @@ async def update_database(connection, descriptions, expected, *, apply, backup_p
         )]
         changes = plan_changes(rows, descriptions, expected)
         counts = {table: await connection.fetchval(f"SELECT count(*) FROM catalog.{table}")
-                  for table in COLUMNS}
+                  for table in CATALOG_DATA_TABLES}
         report = {"mode": "applied" if apply else "preview", "total_ingredients": len(rows),
                   "reviewed_full_descriptions": len(descriptions), "changed": len(changes),
                   "already_current": len(descriptions) - len(changes), "table_counts": counts}

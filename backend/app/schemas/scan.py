@@ -39,6 +39,8 @@ class CompositionScanResponse(BaseModel):
     confidence: float | None = None
     processing_time_ms: int | None = Field(default=None, alias="processingTimeMs")
     analysis: AnalyzeIngredientsResponse | None = None
+    request_id: str | None = Field(default=None, alias="requestId")
+    tokens: list[str] = Field(default_factory=list)
 
 
 class ScanJobResponse(BaseModel):

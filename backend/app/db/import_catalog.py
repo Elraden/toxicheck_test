@@ -15,6 +15,9 @@ import asyncpg
 from dotenv import dotenv_values
 
 from app.db.build_catalog import COLUMNS, DEFAULT_OUTPUT, ROOT, SCHEMA_VERSION, validate_catalog
+from app.db.schema_contract import CATALOG_DATA_TABLES
+
+STORED_COLUMNS = {name: COLUMNS[name] for name in CATALOG_DATA_TABLES}
 
 SCHEMA = ROOT / "backend/db/schema_catalog.sql"
 URL_VARIABLE = "TOXICHECK_CATALOG_DATABASE_URL"
@@ -67,7 +70,8 @@ def sql_value(key, value):
 
 
 async def import_catalog(connection, bundle, *, filename, file_sha256, replace_data=False):
-    counts = validate_catalog(bundle)
+    validated = validate_catalog(bundle)
+    counts = {name: validated[name] for name in STORED_COLUMNS}
     async with connection.transaction():
         await connection.execute("SELECT pg_advisory_xact_lock(873024120)")
         if await connection.fetchval("SELECT to_regclass('public.ingredients') IS NOT NULL"):
@@ -79,9 +83,9 @@ async def import_catalog(connection, bundle, *, filename, file_sha256, replace_d
         await connection.execute(SCHEMA.read_text(encoding="utf-8"))
         if replace_data:
             # No CASCADE: an unexpected external dependency must abort the reset.
-            tables = ", ".join(f"catalog.{table}" for table in COLUMNS)
+            tables = ", ".join(f"catalog.{table}" for table in STORED_COLUMNS)
             await connection.execute(f"TRUNCATE TABLE {tables} RESTRICT")
-        for table, columns in COLUMNS.items():
+        for table, columns in STORED_COLUMNS.items():
             pk = "rule_id" if table == "rule_transitions" else "ingredient_id" if table == "ingredient_matches" else "id"
             column_sql = ", ".join(columns)
             placeholders = ", ".join(f"${i}" for i in range(1, len(columns) + 1))
@@ -93,7 +97,7 @@ async def import_catalog(connection, bundle, *, filename, file_sha256, replace_d
             )
         # A full snapshot replaces obsolete catalog rows, including removed rules.
         # Children are pruned first; user/application tables are never touched.
-        for table in reversed(COLUMNS):
+        for table in reversed(STORED_COLUMNS):
             pk = "rule_id" if table == "rule_transitions" else "ingredient_id" if table == "ingredient_matches" else "id"
             await connection.execute(f"DELETE FROM catalog.{table} WHERE NOT ({pk} = ANY($1::uuid[]))",
                                      [row[pk] for row in bundle[table]])

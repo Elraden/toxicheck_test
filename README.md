@@ -1,160 +1,348 @@
 # ToxiCheck
 
-Monorepo structure:
+ToxiCheck распознаёт состав продуктов по штрихкоду или фотографии, показывает сведения об ингредиентах и проверяет персональные исключения. В приложении есть исследовательский режим с кабинетом администратора.
 
-```text
-frontend/  Vue + Vite mobile web app
-backend/   FastAPI backend foundation
-docs/      architecture diagrams and notes
+## Возможности
+
+- Сканирование штрихкода с получением состава из Open Food Facts.
+- Распознавание состава через встроенный OCR: браузерная и нативная камера, предварительный просмотр и поворот фотографии.
+- База знаний с поиском, фильтрами, постепенной загрузкой и подробными карточками ингредиентов.
+- Персональные исключения, сохраняемые в гостевом профиле. Найденные исключения выводятся первыми и делают общий результат красным; нормативные статусы ингредиентов оцениваются отдельно.
+- Ручные исправления распознанного состава.
+- Исследования: ручная проверка этикетки, анализ OCR, разметка, проверка администратором и экспорт результатов.
+
+История сканирований, сравнение товаров и биллинг пока представлены заготовками и не являются завершёнными функциями.
+
+## Архитектура
+
+Фронтенд — **Vue, TypeScript и Vite**. Бэкенд — **FastAPI** со встроенным OCR на основе Tesseract, адаптивной обработкой изображений и сопоставлением ингредиентов. Данные хранятся в **PostgreSQL**.
+
+```mermaid
+flowchart LR
+  UI[Vue: приложение и кабинет администратора] -->|/api| API[FastAPI]
+  API --> OFF[Open Food Facts: штрихкод]
+  API --> OCR[Обработка фото и OCR]
+  OFF --> ANALYSIS[Сопоставление ингредиентов и оценка правил]
+  OCR --> ANALYSIS
+  ANALYSIS --> DB[(PostgreSQL)]
+  API --> DB
+  API --> PHOTOS[Закрытое хранилище фото исследований]
 ```
 
-## Frontend
+Названия, синонимы и правила берутся из каталога БД. Неопознанный ингредиент не считается безопасным. При низком качестве распознавания пользователь может повторить фотографию или исправить состав.
 
-```sh
-cd frontend
-npm install
-npm run dev
-```
+Приложение использует одну БД: каталог читается через отдельный пул соединений, а профили, исправления и исследования используют пул записи. Миграции запускаются явно, отдельно от старта API.
 
-Build:
+## Структура проекта
 
-```sh
-cd frontend
-npm run build
-```
+| Путь | Назначение |
+| --- | --- |
+| `frontend/src` | Экраны, компоненты, камера и клиент API |
+| `backend/app/api` | HTTP-методы и проверка прав доступа |
+| `backend/app/services` | OCR, анализ состава, профили и исследования |
+| `backend/app/schemas` | Модели запросов и ответов |
+| `backend/app/db` | Сборка каталога, импорт и обслуживание БД |
+| `backend/db/schema_catalog.sql` | Схема каталога и дерева решений |
+| `backend/db/migrations` | SQL-миграции пользовательских данных и исследований |
+| `backend/tests`, `frontend/tests` | Автоматические проверки |
+| `backend/Dockerfile`, `frontend/Dockerfile` | Production-образы API с OCR и фронтенда с Caddy |
+| `deploy/` | Docker Compose, деплой и резервное копирование на сервере |
+| `.github/workflows/deploy.yml` | Проверки и автоматическая публикация из GitHub |
+| `docker-compose.backend.yml` | Локальные PostgreSQL и API |
 
-Deploy frontend to Vercel:
+## База данных
 
-```sh
-cd frontend
-npx vercel --prod --scope toxi-check
-```
+В полной схеме приложения 27 таблиц. Контракт схемы описан в `backend/app/db/schema_contract.py`.
 
-In production, point the frontend to the Railway backend with:
+| Схема | Назначение |
+| --- | --- |
+| `catalog` — 11 таблиц | Ингредиенты, синонимы, категории, нормативные правила, доказательства, переходные сроки и журнал импорта |
+| `public` — 5 таблиц | Пользователи, сессии, ограничения частоты запросов и персональные исключения |
+| `decision_tree` — 3 таблицы | Очередь проверки совпадений, пользовательские исправления и обучающие примеры |
+| `research` — 8 таблиц | Исследования, участники, этикетки, сессии, фотографии, попытки OCR, эталоны и аудит |
+
+Каталог нормализован и связан внешними ключами. Снимки исследовательских ответов и результатов хранятся в JSONB. В БД находятся метаданные фотографий, а сами файлы — в закрытом хранилище `RESEARCH_STORAGE_DIR`. Отдельный каталог товаров не ведётся.
+
+## Локальный запуск
+
+Требуются Python 3.12+, PostgreSQL 16+ и Node.js версии, указанной в `frontend/package.json`. Для OCR без Docker установите Tesseract с языками `rus` и `eng` и добавьте его в `PATH`. Проверка установки: `tesseract --version` и `tesseract --list-langs`.
+
+### Настройки
+
+Создайте `backend/.env` и `frontend/.env` по соответствующим `.env.example`. Основные настройки бэкенда для локальной БД:
 
 ```env
-VITE_API_BASE_URL=https://your-railway-service.up.railway.app/api
+APP_ENV=local
+DATABASE_URL=postgresql+asyncpg://toxicheck:toxicheck@localhost:5433/toxicheck
+TOXICHECK_CATALOG_DATABASE_URL=postgresql+asyncpg://toxicheck:toxicheck@localhost:5433/toxicheck
+OCR_MODE=embedded
+FRONTEND_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+RESEARCH_STORAGE_DIR=.research-photos
+RESEARCH_APP_VERSION=local
+RESEARCH_PIPELINE_VERSION=embedded-adaptive-v1
 ```
 
-## Backend
+Это локальные реквизиты из Docker Compose. PostgreSQL доступен с компьютера на порту `5433`; другой порт можно задать переменной `TOXICHECK_POSTGRES_PORT` перед запуском Compose. Внутри Docker API подключается к `postgres:5432`. `TOXICHECK_CATALOG_DATABASE_URL` имеет приоритет над `DATABASE_URL`; при локальной работе обе переменные должны указывать на локальную БД.
 
-Backend architecture and API foundation live in `backend/`.
+На фронтенде:
 
-- Architecture diagram: `docs/backend-architecture.svg`
-- Architecture notes: `docs/backend-architecture.md`
-- Backend details: `backend/README.md`
+```env
+VITE_API_BASE_URL=/api
+```
 
-Run against the existing catalog (no local database required). Set
-`TOXICHECK_CATALOG_DATABASE_URL` in ignored `backend/.env`, then:
+Vite проксирует `/api` на `127.0.0.1:8000`. Обращение через один домен необходимо для работы браузерных сессий.
+
+### Бэкенд и каталог
+
+Локальный PostgreSQL можно запустить из корня проекта:
 
 ```sh
-cd backend
+docker compose -f docker-compose.backend.yml up -d postgres
+```
+
+Из `backend/` создайте виртуальное окружение и активируйте его:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+В Linux/macOS команда активации — `source .venv/bin/activate`. Затем установите зависимости, подготовьте схему и загрузите каталог:
+
+```sh
+python -m pip install -e ".[ocr]"
+python -m app.db.initialize --expected-host localhost
+python -m app.db.initialize --expected-host localhost --apply
+python -m app.db.import_catalog ../toxicheck_catalog.json --validate-only
+python -m app.db.import_catalog ../toxicheck_catalog.json
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-An optional local backend stack is also available:
+`initialize` без `--apply` проверяет подключение; с флагом применяет схемы в одной транзакции. Значение `--expected-host` должно совпадать с хостом в URL. Импортер использует только `TOXICHECK_CATALOG_DATABASE_URL`; вариант `--prompt-url` позволяет ввести URL скрыто.
+
+API доступен по `http://localhost:8000/api`, документация методов — по `http://localhost:8000/docs`. `/api/health` проверяет работу API, `/api/health/db` — подключение и таблицы каталога. Для анализа в каталоге должны быть данные.
+
+Вместо локального процесса `uvicorn` можно запустить API с OCR в Docker из корня проекта:
 
 ```sh
-docker compose -f docker-compose.backend.yml up --build
+docker compose -f docker-compose.backend.yml up --build -d
 ```
 
-A new local Postgres volume creates schema `catalog`, but starts empty. Import
-the catalog explicitly before analysis; an existing volume is not migrated
-by Docker initialization scripts. Do not delete a volume to switch catalogs.
+Образ содержит Tesseract и Python-зависимости. Новый том PostgreSQL получает схемы автоматически, но требует импорта каталога. Для существующего тома миграции выполняются явно. БД и фотографии используют постоянные тома.
 
-Backend API will be available at:
+### Фронтенд
 
-```text
-http://localhost:8000/api
+В отдельном терминале из `frontend/`:
+
+```sh
+npm ci
+npm run dev
 ```
 
-## Deploy Backend To Railway
+## Каталог ингредиентов
 
-Railway deployment files:
+Основной файл импорта — `toxicheck_catalog.json`. Для его сборки и проверки из `backend/`:
 
-- `railway.json`
-- `backend/Dockerfile.railway`
-
-The Railway image installs system Tesseract and runs OCR inside the backend with:
-
-```env
-OCR_MODE=embedded
+```sh
+python -m app.db.build_catalog
+python -m app.db.import_catalog ../toxicheck_catalog.json --validate-only
 ```
 
-Create a Railway project from the GitHub repository, add a Postgres service,
-then set backend service variables:
+Сборщик использует `toxicheck_proe_merged.json`, снимок `backend/db/off/ingredients.txt` и дополнения из `backend/db/rpn_banned_additives.json`. Неоднозначные названия отражаются в `off_catalog_review_report.json`. Сборка и валидация не подключаются к БД.
 
-```env
-APP_NAME=ToxiCheck API
-APP_ENV=production
-FRONTEND_ORIGINS=https://toxicheck-ruby.vercel.app
-OPEN_FOOD_FACTS_BASE_URL=https://world.openfoodfacts.org
-OCR_MODE=embedded
-OCR_SERVICE_URL=
-DATABASE_URL=${{Postgres.DATABASE_URL}}
-TOXICHECK_CATALOG_DATABASE_URL=${{Postgres-hcbk.DATABASE_URL}}
+Импорт без `--validate-only` обновляет каталог транзакционно, включая удаление отсутствующих в снимке записей. Перед загрузкой проверяйте целевое подключение и сохраняйте резервную копию. Идентификаторы ингредиентов должны оставаться стабильными: на них ссылаются пользовательские исключения.
+
+Для точечных обновлений предусмотрены `app.db.apply_catalog_supplement` и `app.db.update_descriptions`: предварительный просмотр по умолчанию, запись с `--apply`, синхронизация локальных файлов с `--sync-local`.
+
+Нормативные правила содержат источники, URL, конкретные пункты или приложения, даты и статус проверки. Значения `PERMITTED_WITH_CONDITIONS`, `BANNED` и `PHASE_OUT` описывают нормативное положение ингредиента; итоговая оценка учитывает условия и подтверждённость сведений. Отсутствие предупреждения не является доказательством безопасности или соблюдения допустимой дозировки.
+
+Open Food Facts используется для названий и синонимов, а не для нормативной оценки. Источник снимка — [таксономия Open Food Facts](https://github.com/openfoodfacts/openfoodfacts-server/blob/main/taxonomies/ingredients.txt); точная ревизия предоставленного файла неизвестна. При распространении данных учитывайте лицензию и требования атрибуции исходного проекта.
+
+## Пользователи и администратор
+
+Обычному пользователю доступен гостевой профиль без регистрации. Он определяется серверной сессией в cookie; после утраты cookie или на другом устройстве создаётся другой профиль. Предпочтения хранятся в БД, фронтенд поддерживает локальный кеш.
+
+Администратор входит по логину и паролю через `/app/admin`. Создание учётной записи выполняется из `backend/`:
+
+```sh
+python -m app.db.manage_admin create --login YOUR_LOGIN --expected-host localhost
 ```
 
-After Railway creates a public backend domain, copy its URL and set this variable in
-the Vercel frontend project:
+Пароль вводится скрыто и хранится как хеш Argon2id. Администратора по умолчанию нет. Команды `reset-password`, `disable` и `revoke-sessions` позволяют управлять доступом.
 
-```env
-VITE_API_BASE_URL=https://your-railway-service.up.railway.app/api
+Права проверяются на сервере. Cookie имеют `HttpOnly`; в production включаются `Secure` и префикс `__Host-`. Запросы на изменение пользовательских и административных данных защищены проверкой Origin и CSRF-токеном. Гостевые и административные сессии разделены.
+
+## Исследования
+
+Участник открывает `/research`, администратор управляет исследованиями через `/app/admin/research`.
+
+Доступны два сценария:
+
+1. **Сравнение способов проверки:** ручная проверка этикетки → анализ ToxiCheck → разметка полного состава.
+2. **Качество OCR:** анализ фотографии → разметка полного состава.
+
+В сценарии сравнения ручной этап проходит до показа результата OCR. При создании сессии сохраняется снимок персональных E-исключений. Сервер контролирует последовательность этапов; ответы, попытки и разметка связаны одним `run_id`.
+
+Администратор создаёт исследование, открывает участие, просматривает результаты с фильтрами, проверяет состав по фотографии и подтверждает эталон. Исходные ответы и результаты OCR сохраняются отдельно от проверенного текста. Правки эталона защищены версией записи и фиксируются в журнале.
+
+### Данные и метрики
+
+Для каждой сессии сохраняются ответы человека, исходные фотографии, попытки OCR, исключения, пользовательская разметка и подтверждённый эталон. Для попыток фиксируются версии приложения, алгоритма и хеш каталога.
+
+| Метрика | Содержание |
+| --- | --- |
+| `manual_duration_ms` | Серверное время ручного этапа |
+| `app_duration_ms` | Серверное время пользовательского этапа ToxiCheck |
+| `app_e2e_ms` | Клиентский замер от отправки изображения до показа результата |
+| `server_processing_ms` | Время обработки исследовательского запроса |
+| `ocr_processing_ms` | Время непосредственно OCR |
+
+При восстановлении после потери связи отсутствующий клиентский замер остаётся пустым. Второй этап сравнения выполняется на уже знакомой этикетке, поэтому разницу времени нельзя безоговорочно трактовать как эффект приложения.
+
+Экспорт формируется по выбранным фильтрам в ZIP с CSV, Excel, JSON и, при необходимости, фотографиями. Он включает ответы, попытки, эталоны и аудит. Precision и Recall в интерфейсе не вычисляются; исходные данные доступны для отдельного анализа.
+
+### Фото и обучающие данные
+
+Исследовательские фотографии доступны только владельцу сессии и администратору. Поддерживаются JPEG, PNG и WebP до 12 МБ и 40 мегапикселей. Исходный файл сохраняется, для OCR готовится отдельное изображение с учётом ориентации.
+
+Ручные исправления обычного сканирования находятся в `decision_tree.user_corrections` и очереди проверки `review_queue`. Проверенные обучающие примеры хранятся в `training_data`. Пользовательские предложения и исследовательские эталоны не меняют каталог и не запускают обучение автоматически. Контрольная выборка исследования должна быть отделена от обучающей.
+
+## Развёртывание
+
+Весь проект работает на одном Linux-сервере **x86_64** с Docker Engine и Compose v2: PostgreSQL 17, API со встроенным OCR и Caddy с собранным фронтендом. Наружу опубликованы только HTTP/HTTPS. Запросы `/api` проксируются внутри Docker; БД, фотографии и сертификаты сохраняются в именованных томах проекта `toxicheck`.
+
+GitHub Actions проверяет бэкенд и фронтенд при push/PR в `main`. Если repository variable `DEPLOY_ENABLED=true`, после успешных проверок push в `main` также собирает образы, передаёт их по SSH на сервер и запускает `deploy/deploy.sh`. Доступ к Docker Hub для публикации образов не нужен. Ручной запуск доступен через Actions → **Check and deploy ToxiCheck → Run workflow** на ветке `main`.
+
+### 1. Подготовка сервера
+
+Выполните в терминале сервера под `ubuntu`. Docker и Compose v2 должны быть установлены; проверьте `docker --version` и `docker compose version`. Нужны свободные порты 80/443 и входящий SSH 22, доступный также GitHub-hosted runners. Разрешите их в сетевых правилах Immers Cloud. Не открывайте порт PostgreSQL.
+
+```sh
+sudo apt-get update
+sudo apt-get install -y git curl openssl
+sudo usermod -aG docker ubuntu
+sudo install -d -m 700 -o ubuntu -g ubuntu /opt/toxicheck
 ```
 
-Then redeploy Vercel.
+После добавления группы Docker выйдите и войдите в SSH/консоль заново. `docker ps` должен работать **без sudo**. Членство в группе Docker даёт административные возможности на сервере; используйте отдельный ключ для CI.
 
-The API reads the already imported `catalog` schema, version 2, using a separate
-read-only connection. `TOXICHECK_CATALOG_DATABASE_URL` takes priority; if empty,
-the API uses `DATABASE_URL`, which must then point to the catalog database.
-Keep a separate `DATABASE_URL` for future application storage if needed.
-The Docker build and Railway pre-deploy no longer build or import legacy data.
-Remove any old pre-deploy command also configured manually in Railway Settings.
-Use the private database reference for Railway; a local API or importer needs
-the public database URL. No URL or credentials belong in frontend variables.
-See `README_catalog_railway.md` for explicit catalog imports.
+```sh
+cd /opt/toxicheck
+git clone --branch main https://github.com/Elraden/toxicheck_test.git source
+mkdir -p releases backups
+umask 077
+printf 'SITE_ADDRESS=toxicheck.195.209.209.111.sslip.io\nPOSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 32)" > .env
+```
 
-Check `/api/health/db` after deployment: it reports database availability and
-catalog row counts. The result page calls `/api/analysis` for barcode and OCR
-compositions, and preferences load `/api/preferences/catalog`. Neither screen
-uses a local risk catalog. Unknown ingredients remain visible as unknown.
-Found ingredients without rules have severity `unknown`, not a safety rating.
-Matching uses exact E-codes (including subtypes) and unique normalized aliases;
-ambiguous aliases and fuzzy matches cannot silently choose an ingredient.
+Команда создания `.env` предназначена **только для первой установки**. Не перезаписывайте пароль после создания тома PostgreSQL. Файл остаётся на сервере, не входит в Git и не нужен GitHub Actions.
 
-### Embedded OCR and the catalog
+До покупки домена используется `toxicheck.195.209.209.111.sslip.io`. DNS должен указывать на сервер. Caddy получает HTTPS-сертификат автоматически при доступных портах 80/443; браузерной камере нужен HTTPS. Выпуск сертификата зависит от доступности DNS/центра сертификации и его лимитов. Впоследствии замените `SITE_ADDRESS` на свой домен и повторите деплой.
 
-The Railway backend uses `backend/app/services/ocr_engine.py` and
-`ocr_preprocessing.py`, adapted from the ML prototype. Adaptive resizing and
-sharpening precede Tesseract; confidence below 0.45 requests another photo.
-Both camera types still use `POST /api/scan/composition`. Its response retains
-the text fields and adds `analysis` with catalog ingredient UUIDs, rules and
-the verdict. The result page can still re-analyze the text with personal preferences.
+### 2. Перенос локальной БД и фотографий
 
-OCR matching uses the same `IngredientResolver` and read-only catalog connection
-as barcode analysis (`TOXICHECK_CATALOG_DATABASE_URL`, schema version 2).
-There is no second dictionary, test database, import-time DB query, or schema
-migration. The prototype's `ingredient_db.py`, fuzzy hazard detector and public
-review endpoints are intentionally not used: uncertain text must not become a
-confirmed restriction. Unknown tokens remain visible; nested ingredients are
-split without losing E-code subtypes. The prototype's `decision_tree` training
-tables are not required; training/review storage is not enabled by this adaptation.
-
-Logs include camera source, preprocessing metrics, raw/clean text, catalog
-matches and unmatched tokens. Images and database credentials are not logged.
-OCR accepts JPEG/PNG/WebP up to 12 MiB and 25 million pixels; processing is capped
-at 3000 pixels per side with Tesseract timeouts and one active OCR per process.
-The root `ocr_service.py` is a legacy standalone prototype, not the Railway engine.
-
-Read-only integration check against the configured catalog, in PowerShell:
+На **локальном компьютере**, PowerShell из корня проекта, пока локальные контейнеры запущены:
 
 ```powershell
-cd backend
-$env:TOXICHECK_DB_SMOKE = '1'
-python -m unittest discover -s tests -p test_database_smoke.py
-Remove-Item Env:TOXICHECK_DB_SMOKE
+New-Item -ItemType Directory -Force .deploy.local | Out-Null
+docker compose -f docker-compose.backend.yml exec -T postgres pg_dump -U toxicheck -d toxicheck --no-owner --no-acl -Fc -f /tmp/toxicheck.dump
+docker compose -f docker-compose.backend.yml cp postgres:/tmp/toxicheck.dump .deploy.local/database.dump
+docker compose -f docker-compose.backend.yml exec -T api python -c "import tarfile; t=tarfile.open('/tmp/photos.tar.gz','w:gz'); t.add('/data/research-photos',arcname='.'); t.close()"
+docker compose -f docker-compose.backend.yml cp api:/tmp/photos.tar.gz .deploy.local/research-photos.tar.gz
+scp -i "$env:USERPROFILE\.ssh\toxicheck-server-01.pem" .deploy.local/database.dump .deploy.local/research-photos.tar.gz ubuntu@195.209.209.111:/opt/toxicheck/
 ```
 
-Vercel's `frontend/vercel.json` proxies `/api/*` to the Railway backend, so
-`VITE_API_BASE_URL` can be omitted in production for this deployment. Update
-the proxy destination when changing the backend domain.
+На время снимка не изменяйте исследовательские данные. Дамп содержит каталог, профили, исключения и исследования, а не только ингредиенты. Бинарный дамп копируется через `docker compose cp`, чтобы PowerShell не изменил его содержимое. Если SSH с компьютера недоступен, передайте эти два файла по другому доступному защищённому каналу. Не загружайте их в публичный репозиторий.
+
+На **сервере** соберите первый релиз:
+
+```sh
+cd /opt/toxicheck/source
+export RELEASE_SHA=$(git rev-parse HEAD)
+release=/opt/toxicheck/releases/$RELEASE_SHA
+mkdir -p "$release"
+cp deploy/compose.yml deploy/deploy.sh deploy/backup.sh "$release/"
+docker build -f backend/Dockerfile -t "toxicheck-api:$RELEASE_SHA" .
+docker build -t "toxicheck-web:$RELEASE_SHA" frontend
+dc() { docker compose --env-file /opt/toxicheck/.env -f "$release/compose.yml" "$@"; }
+dc up -d --wait postgres
+dc cp /opt/toxicheck/database.dump postgres:/tmp/toxicheck.dump
+dc exec -T postgres pg_restore -U toxicheck -d toxicheck --no-owner --no-acl --exit-on-error --single-transaction /tmp/toxicheck.dump
+docker volume create toxicheck_research_photos
+docker run --rm --network none --entrypoint tar -v toxicheck_research_photos:/photos -v /opt/toxicheck:/backup:ro "toxicheck-api:$RELEASE_SHA" -xzf /backup/research-photos.tar.gz -C /photos --no-same-owner
+bash "$release/deploy.sh" "$RELEASE_SHA"
+```
+
+Восстановление выполняется **один раз в пустую БД**. При ошибке остановитесь: не выполняйте последующие команды и не удаляйте том. Для обычных обновлений повторный импорт не нужен. Используйте только собственный архив фотографий. После запуска проверьте `https://toxicheck.195.209.209.111.sslip.io/api/health/db`, количество ингредиентов и вход администратора. Гостевые cookie прежнего домена на новый адрес не переносятся.
+
+### 3. Ключ и секреты GitHub Actions
+
+Создайте отдельный ключ **на своём компьютере**, без passphrase, для неинтерактивного CI:
+
+```powershell
+ssh-keygen -t ed25519 -C toxicheck-github-actions -f "$env:USERPROFILE\.ssh\toxicheck-actions"
+```
+
+На сервере добавьте содержимое `toxicheck-actions.pub` в `/home/ubuntu/.ssh/authorized_keys` **новой строкой**, сохранив существующие ключи. Перед `ssh-ed25519` поставьте `restrict `: это запрещает туннели и интерактивный PTY, но разрешает команды и SCP/SFTP. Права: `.ssh` — `700`, `authorized_keys` — `600`, владелец — `ubuntu`.
+
+Ключ хоста получите непосредственно в доверенной консоли сервера, чтобы CI проверял подлинность SSH-сервера:
+
+```sh
+awk '{print "195.209.209.111 " $1 " " $2}' /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+В репозитории **Settings → Secrets and variables → Actions → Secrets** добавьте:
+
+| Secret | Значение |
+| --- | --- |
+| `DEPLOY_HOST` | `195.209.209.111` |
+| `DEPLOY_PORT` | `22` |
+| `DEPLOY_USER` | `ubuntu` |
+| `DEPLOY_SSH_KEY` | Полное содержимое приватного `toxicheck-actions`, включая BEGIN/END |
+| `DEPLOY_KNOWN_HOSTS` | Строка, полученная командой `awk` выше |
+
+Пароль PostgreSQL, исходный облачный SSH-ключ и дамп БД в GitHub не нужны. Для другого SSH-порта в known_hosts используется `[HOST]:PORT` вместо `HOST`.
+
+Создайте GitHub environment **production**, ограничьте deployment branches веткой `main`. Затем в **Actions → Variables** добавьте **repository variable** `DEPLOY_ENABLED` со значением `true`. Пока она отсутствует или равна `false`, запускаются только проверки. Включайте её после успешной первой установки, передачи ключа и проверки SSH-доступа снаружи. После этого запустите workflow вручную, чтобы проверить первый автоматический деплой.
+
+### Обновления, резервные копии и диагностика
+
+Перед обновлением создаётся копия PostgreSQL и фотографий в `/opt/toxicheck/backups`, затем транзакционно применяются схемы и проверяется готовность API/сайта. Если приложение не запустилось, скрипт пытается вернуть образы предыдущего релиза. **БД автоматически не откатывается**: изменения схемы должны сохранять совместимость с предыдущим приложением. Обновление может вызвать краткий перерыв в работе.
+
+На сервере для управления текущим релизом:
+
+```sh
+release=$(readlink -f /opt/toxicheck/current)
+export RELEASE_SHA=${release##*/}
+dc() { docker compose --env-file /opt/toxicheck/.env -f "$release/compose.yml" "$@"; }
+dc ps
+dc logs --tail 100 api web
+dc exec api python -m app.db.manage_admin create --login YOUR_LOGIN --expected-host postgres
+bash /opt/toxicheck/current/backup.sh
+```
+
+Команда создания администратора нужна, только если подходящей учётной записи нет в перенесённой БД. Пароль вводится интерактивно. Для ежедневного бэкапа добавьте через `crontab -e` пользователя `ubuntu` строку:
+
+```cron
+0 3 * * * /usr/bin/flock -n /opt/toxicheck/deploy.lock /bin/bash /opt/toxicheck/current/backup.sh >> /opt/toxicheck/backup.log 2>&1
+```
+
+Архивы, предыдущие образы и релизы автоматически не удаляются: контролируйте свободное место. Резервные копии на том же диске не защищают от потери сервера — регулярно копируйте их в отдельное закрытое хранилище. Не используйте `docker compose down -v`: это удаляет данные томов. Файловое хранилище фотографий рассчитано на одну реплику API; для нескольких серверов потребуется общее закрытое хранилище.
+
+Справочные материалы: [GitHub Actions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow), [Caddy: маршрутизация SPA и API](https://caddyserver.com/docs/caddyfile/patterns), [Docker Compose: ожидание готовности](https://docs.docker.com/reference/cli/docker/compose/up/).
+
+## Проверки
+
+Бэкенд, из `backend/`:
+
+```sh
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+Фронтенд, из `frontend/`:
+
+```sh
+node --test tests/*.test.mjs
+npm run build
+```
+
+Тесты с PostgreSQL включаются явно. Исследовательский интеграционный тест использует временную БД на `127.0.0.1:55439` с пользователем `research_test` и включается через `TOXICHECK_RESEARCH_LOCAL_TEST=1`. Он проверяет сессии, этапы, доступ, файлы и экспорт; ответ OCR подменяется контролируемым примером и не измеряет качество модели.

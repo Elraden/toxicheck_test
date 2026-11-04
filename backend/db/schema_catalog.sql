@@ -1,5 +1,5 @@
--- Independent ingredient catalog, PostgreSQL 16+. No JSON/JSONB columns.
--- Apply through app.db.import_catalog in a dedicated database.
+-- Runtime catalog and decision-tree tables, PostgreSQL 16+.
+-- One application database; identity and research are added by migrations.
 CREATE SCHEMA IF NOT EXISTS catalog;
 
 CREATE TABLE IF NOT EXISTS catalog.schema_version (
@@ -98,16 +98,6 @@ CREATE TABLE IF NOT EXISTS catalog.rule_transitions (
   CHECK (last_production_date IS NULL OR last_production_date < transition_end)
 );
 
-CREATE TABLE IF NOT EXISTS catalog.ingredient_profiles (
-  id uuid PRIMARY KEY,
-  ingredient_id uuid NOT NULL UNIQUE REFERENCES catalog.ingredients(id) ON DELETE CASCADE,
-  source_id uuid NOT NULL REFERENCES catalog.regulatory_sources(id),
-  source_url text NOT NULL,
-  fetched_at timestamptz,
-  has_article boolean NOT NULL,
-  full_description_status text NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS catalog.ingredient_tags (
   id uuid PRIMARY KEY,
   ingredient_id uuid NOT NULL REFERENCES catalog.ingredients(id) ON DELETE CASCADE,
@@ -117,91 +107,12 @@ CREATE TABLE IF NOT EXISTS catalog.ingredient_tags (
 );
 CREATE INDEX IF NOT EXISTS catalog_tags_ingredient_idx ON catalog.ingredient_tags(ingredient_id);
 
-CREATE TABLE IF NOT EXISTS catalog.documents (
-  id uuid PRIMARY KEY,
-  source_id uuid NOT NULL REFERENCES catalog.regulatory_sources(id),
-  title text NOT NULL,
-  url text NOT NULL UNIQUE,
-  verification_status text NOT NULL,
-  fetched_at timestamptz
-);
-CREATE TABLE IF NOT EXISTS catalog.document_links (
-  id uuid PRIMARY KEY,
-  document_id uuid NOT NULL REFERENCES catalog.documents(id) ON DELETE CASCADE,
-  relation text NOT NULL CHECK (relation IN ('external', 'file')),
-  url text NOT NULL,
-  UNIQUE(document_id, relation, url)
-);
-CREATE TABLE IF NOT EXISTS catalog.ingredient_references (
-  id uuid PRIMARY KEY,
-  ingredient_id uuid NOT NULL REFERENCES catalog.ingredients(id) ON DELETE CASCADE,
-  document_id uuid REFERENCES catalog.documents(id),
-  title text NOT NULL,
-  url text NOT NULL,
-  relation text NOT NULL,
-  organization text
-);
-CREATE INDEX IF NOT EXISTS catalog_references_ingredient_idx ON catalog.ingredient_references(ingredient_id);
-
-CREATE TABLE IF NOT EXISTS catalog.ingredient_relations (
-  id uuid PRIMARY KEY,
-  ingredient_id uuid NOT NULL REFERENCES catalog.ingredients(id) ON DELETE CASCADE,
-  related_ingredient_id uuid REFERENCES catalog.ingredients(id),
-  related_url text NOT NULL
-);
-CREATE INDEX IF NOT EXISTS catalog_relations_ingredient_idx ON catalog.ingredient_relations(ingredient_id);
-
--- Missing direct attribution stays unknown instead of naming an aggregator.
-ALTER TABLE catalog.ingredient_profiles ALTER COLUMN source_id DROP NOT NULL;
-ALTER TABLE catalog.ingredient_profiles ALTER COLUMN source_url DROP NOT NULL;
-ALTER TABLE catalog.documents ALTER COLUMN source_id DROP NOT NULL;
-ALTER TABLE catalog.documents ALTER COLUMN url DROP NOT NULL;
-ALTER TABLE catalog.ingredient_references ALTER COLUMN url DROP NOT NULL;
-ALTER TABLE catalog.ingredient_relations ALTER COLUMN related_url DROP NOT NULL;
-
 CREATE TABLE IF NOT EXISTS catalog.ingredient_matches (
   ingredient_id uuid PRIMARY KEY REFERENCES catalog.ingredients(id) ON DELETE CASCADE,
   legacy_ingredient_id uuid NOT NULL UNIQUE,
   match_method text NOT NULL
 );
 
--- Taxonomy provenance is separate from regulatory evidence and hazard rules.
-CREATE TABLE IF NOT EXISTS catalog.taxonomy_sources (
-  id uuid PRIMARY KEY,
-  code text NOT NULL UNIQUE,
-  title text NOT NULL,
-  url text NOT NULL,
-  file_sha256 text NOT NULL CHECK (length(file_sha256) = 64)
-);
-CREATE TABLE IF NOT EXISTS catalog.taxonomy_entries (
-  id uuid PRIMARY KEY,
-  taxonomy_source_id uuid NOT NULL REFERENCES catalog.taxonomy_sources(id),
-  taxonomy_key text NOT NULL,
-  canonical_name_ru text,
-  canonical_name_en text,
-  ingredient_id uuid REFERENCES catalog.ingredients(id),
-  match_method text NOT NULL CHECK (match_method IN
-    ('exact_e_code', 'new_ordinary_ingredient', 'untranslated', 'code_review_required')),
-  source_line integer NOT NULL CHECK (source_line > 0),
-  UNIQUE(taxonomy_source_id, taxonomy_key)
-);
-CREATE INDEX IF NOT EXISTS catalog_taxonomy_ingredient_idx ON catalog.taxonomy_entries(ingredient_id);
-CREATE TABLE IF NOT EXISTS catalog.taxonomy_parents (
-  id uuid PRIMARY KEY,
-  entry_id uuid NOT NULL REFERENCES catalog.taxonomy_entries(id) ON DELETE CASCADE,
-  parent_entry_id uuid REFERENCES catalog.taxonomy_entries(id),
-  parent_reference text NOT NULL
-);
-CREATE INDEX IF NOT EXISTS catalog_taxonomy_parents_idx ON catalog.taxonomy_parents(entry_id);
-CREATE TABLE IF NOT EXISTS catalog.taxonomy_properties (
-  id uuid PRIMARY KEY,
-  entry_id uuid NOT NULL REFERENCES catalog.taxonomy_entries(id) ON DELETE CASCADE,
-  property text NOT NULL,
-  language text NOT NULL,
-  value text NOT NULL,
-  verification_status text NOT NULL CHECK (verification_status = 'reference_only')
-);
-CREATE INDEX IF NOT EXISTS catalog_taxonomy_properties_idx ON catalog.taxonomy_properties(entry_id, property);
 -- Never use this table in automatic ingredient matching.
 CREATE TABLE IF NOT EXISTS catalog.ingredient_alias_review (
   id uuid PRIMARY KEY,
@@ -223,3 +134,48 @@ CREATE TABLE IF NOT EXISTS catalog.import_runs (
   ingredient_count integer NOT NULL,
   rule_count integer NOT NULL
 );
+
+CREATE SCHEMA IF NOT EXISTS decision_tree;
+
+CREATE TABLE IF NOT EXISTS decision_tree.review_queue (
+    review_id                uuid PRIMARY KEY,
+    request_id               text NOT NULL,
+    token_raw                text NOT NULL,
+    candidate_canonical_name text NOT NULL,
+    match_score              numeric(5,4) NOT NULL,
+    was_accepted             boolean NOT NULL,
+    is_hazard                boolean NOT NULL DEFAULT false,
+    status                   text NOT NULL DEFAULT 'pending',
+    label                    text,
+    corrected_canonical_name text,
+    created_at               timestamptz NOT NULL DEFAULT now(),
+    labeled_at               timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_queue_pending
+    ON decision_tree.review_queue (status, is_hazard DESC, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS decision_tree.training_data (
+    id             bigserial PRIMARY KEY,
+    token_raw      text NOT NULL,
+    canonical_name text NOT NULL,
+    label          smallint NOT NULL,
+    source         text NOT NULL,
+    created_at     timestamptz NOT NULL DEFAULT now()
+);
+
+-- Anonymous annotations stay separate from trusted training examples.
+CREATE TABLE IF NOT EXISTS decision_tree.user_corrections (
+    id uuid PRIMARY KEY,
+    request_id uuid NOT NULL,
+    token_index integer NOT NULL CHECK (token_index >= 0),
+    token_raw text NOT NULL,
+    corrected_text text NOT NULL CHECK (length(trim(corrected_text)) BETWEEN 1 AND 500),
+    input_sha256 text NOT NULL CHECK (length(input_sha256) = 64),
+    source text NOT NULL DEFAULT 'user_correction',
+    status text NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_user_corrections_request
+    ON decision_tree.user_corrections (request_id, created_at);

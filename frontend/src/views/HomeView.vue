@@ -25,6 +25,11 @@ import {
     </RouterLink>
 
     <section class="home__methods">
+      <RouterLink class="scan-method" :to="{ name: 'research' }">
+        <span class="scan-method__icon"><FileText :size="24" aria-hidden="true" /></span>
+        <span class="scan-method__content"><strong class="scan-method__title">Исследования ToxiCheck</strong><span class="scan-method__description">Проверить приложение и помочь с разметкой</span></span>
+        <ChevronRight :size="20" aria-hidden="true" />
+      </RouterLink>
       <h2 class="home__section-title">
         Способ проверки
       </h2>

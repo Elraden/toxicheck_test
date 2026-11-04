@@ -49,4 +49,5 @@ class AnalyzeIngredientsResponse(BaseModel):
     verdict: ProductVerdict
     matched: list[MatchedIngredientOut]
     unmatched: list[str]
+    tokens: list[str] = Field(default_factory=list)
 

@@ -18,6 +18,19 @@ class VerdictEngine:
         highest_severity = self._highest_severity(reasons)
         risk_score = self._risk_score(highest_severity, len(reasons), len(unmatched))
 
+        personal_ids = {reason.ingredient_id for reason in reasons if reason.severity == "personal"}
+        if personal_ids:
+            names = list(dict.fromkeys(
+                " ".join(filter(None, [item.code, item.name]))
+                for item in matched if item.ingredient_id in personal_ids
+            ))
+            return ProductVerdict(
+                level="risky_for_user", risk_score=max(95, risk_score),
+                title="Не подходит вам",
+                description="Найдены ингредиенты из ваших исключений: " + ", ".join(names),
+                reasons=reasons,
+            )
+
         if highest_severity == "neutral":
             incomplete = bool(unmatched) or not matched or any(i.severity == "unknown" for i in matched)
             return ProductVerdict(
@@ -68,7 +81,7 @@ class VerdictEngine:
                     VerdictReason(
                         severity="personal",
                         title=f"Персональное исключение: {ingredient.name}",
-                        explanation="Ингредиент отмечен пользователем как нежелательный.",
+                        explanation="Ингредиент находится в вашем списке исключений.",
                         ingredient_id=ingredient.ingredient_id,
                         raw_text=ingredient.raw_text,
                     )

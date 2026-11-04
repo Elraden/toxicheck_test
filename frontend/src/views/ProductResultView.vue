@@ -22,8 +22,9 @@ import {
 
 import { getProductByBarcode } from '@/services/openFoodFacts';
 import { useScannerStore } from '@/stores/scanner';
-import { analyzeIngredients, type IngredientAnalysis, type IngredientRule } from '@/services/backendApi';
-import { readPersonalExclusions } from '@/services/personalExclusions';
+import { analyzeIngredients, type IngredientAnalysis, type IngredientRule, type CorrectionsResponse } from '@/services/backendApi';
+import IngredientCorrections from '@/components/IngredientCorrections.vue';
+import { loadPersonalPreferences, personalExclusions } from '@/services/personalExclusions';
 
 type RiskLevel =
   | 'unknown'
@@ -68,6 +69,7 @@ const analysis = ref<IngredientAnalysis | null>(null);
 const analysisLoading = ref(false);
 const analysisError = ref('');
 const showReasons = ref(false);
+const correctionsSaved = ref(0);
 let analysisController: AbortController | undefined;
 let productRequestId = 0;
 
@@ -302,32 +304,56 @@ const compositionText = computed(() => {
 });
 
 const hasCompositionData = computed(() => Boolean(compositionText.value));
+const ocrRecord = computed(() => isRecord(responseRoot.value?.ocr) ? responseRoot.value.ocr : null);
+const fallbackRequestId = crypto.randomUUID();
+const correctionRequestId = computed(() => getString(ocrRecord.value, 'request_id') || fallbackRequestId);
+const needsConfirmation = computed(() => !!ocrRecord.value && ocrRecord.value.status !== 'success'
+  && ocrRecord.value.composition_confirmed !== true);
+const correctionText = computed(() => compositionText.value || getString(ocrRecord.value, 'raw_text'));
+const correctionTokens = computed(() => analysis.value?.tokens ??
+  getArray(ocrRecord.value, 'tokens').filter((item): item is string => typeof item === 'string'));
+
+function acceptCorrections(result: CorrectionsResponse): void {
+  correctionsSaved.value += result.saved;
+  scannerStore.setProductJson({ ...responseRoot.value,
+    product: { ...product.value, ingredients_text: result.ingredientsText },
+    ocr: { ...ocrRecord.value, tokens: result.analysis.tokens, composition_confirmed: true }
+  });
+}
+
 const ingredientItems = computed<IngredientItem[]>(() => {
   if (!analysis.value) return [];
-  const personal = new Set(analysis.value.verdict.reasons
-    .filter((reason) => reason.severity === 'personal').map((reason) => reason.ingredient_id));
   return [
     ...analysis.value.matched.map((item): IngredientItem => ({
       id: item.ingredient_id, name: item.name, code: item.code || undefined,
       rawText: item.raw_text, matchedBy: item.matched_by, rules: item.rules,
-      risk: personal.has(item.ingredient_id) ? 'warning' :
-        ['avoid', 'forbidden'].includes(item.severity) ? 'avoid' :
+      risk: ['avoid', 'forbidden'].includes(item.severity) ? 'avoid' :
         item.severity === 'attention' ? 'warning' :
         item.severity === 'unknown' || !item.rules.length ? 'unknown' : 'neutral'
     })),
-    ...analysis.value.unmatched.map((name, index): IngredientItem => ({
+    ...(ocrRecord.value ? [] : analysis.value.unmatched).map((name, index): IngredientItem => ({
       id: `unmatched-${index}`, name, risk: 'unknown', rules: []
     }))
   ];
 });
 const riskLevel = computed<RiskLevel>(() => {
   const level = analysis.value?.verdict.level;
-  if (level === 'dangerous') return 'avoid';
-  if (level === 'attention' || level === 'risky_for_user') return 'warning';
+  if (level === 'dangerous' || level === 'risky_for_user') return 'avoid';
+  if (level === 'attention') return 'warning';
   return 'unknown';
 });
+const personalIds = computed(() => new Set(analysis.value?.verdict.reasons
+  .filter(reason => reason.severity === 'personal').map(reason => reason.ingredient_id) ?? []));
+const ingredientGroups = computed(() => {
+  const excluded = ingredientItems.value.filter(item => personalIds.value.has(item.id));
+  const regular = ingredientItems.value.filter(item => !personalIds.value.has(item.id));
+  return [
+    { key: 'excluded', title: 'Из ваших исключений', items: excluded },
+    { key: 'regular', title: excluded.length ? 'Остальные ингредиенты' : 'Состав продукта', items: regular }
+  ].filter(group => group.items.length);
+});
 const resultTitle = computed(() => analysis.value?.verdict.title || '');
-const resultDescription = computed(() => analysis.value?.verdict.description || '');
+const resultDescription = computed(() => personalIds.value.size ? 'Найдены ингредиенты из ваших исключений' : analysis.value?.verdict.description || '');
 
 function getRiskLabel(level: RiskLevel): string {
   return { unknown: 'Нет данных', neutral: 'Нет предупреждений', warning: 'Внимание', avoid: 'Ограничения' }[level];
@@ -349,10 +375,12 @@ async function runAnalysis(): Promise<void> {
   analysisError.value = '';
   analysisLoading.value = false;
   showReasons.value = false;
-  if (isProductMissing.value || !compositionText.value) return;
+  if (isProductMissing.value || !compositionText.value || needsConfirmation.value) return;
   analysisLoading.value = true;
   try {
-    const result = await analyzeIngredients(compositionText.value, readPersonalExclusions(), controller.signal);
+    await loadPersonalPreferences();
+    if (controller.signal.aborted) return;
+    const result = await analyzeIngredients(compositionText.value, personalExclusions.value, controller.signal);
     if (!controller.signal.aborted) analysis.value = result;
   } catch (error) {
     if (!controller.signal.aborted) {
@@ -401,7 +429,7 @@ async function ensureProductLoaded(): Promise<void> {
 }
 
 watch(() => route.params.barcode, () => { void ensureProductLoaded(); }, { immediate: true });
-watch([compositionText, isProductMissing], () => { void runAnalysis(); }, { immediate: true });
+watch([compositionText, isProductMissing, needsConfirmation], () => { void runAnalysis(); }, { immediate: true });
 onBeforeUnmount(() => {
   productRequestId++;
   analysisController?.abort();
@@ -454,7 +482,8 @@ onBeforeUnmount(() => {
           </p>
         </section>
 
-        <section v-if="ocrDiagnostics" class="ocr-debug">
+        <details v-if="ocrDiagnostics" class="ocr-debug">
+          <summary>Диагностика OCR</summary>
           <div class="ocr-debug__header">
             <h2 class="ocr-debug__title">
               Диагностика OCR
@@ -496,7 +525,13 @@ onBeforeUnmount(() => {
             <h3>Сырой ответ OCR</h3>
             <pre>{{ ocrDiagnostics.rawText || 'OCR не вернул текст' }}</pre>
           </div>
-        </section>
+        </details>
+
+        <details v-if="ocrDiagnostics && scannerStore.capturedImage" class="label-photo">
+          <summary>Фото этикетки</summary>
+          <img :src="scannerStore.capturedImage" alt="Сфотографированный состав">
+        </details>
+        <p v-if="needsConfirmation" class="result-state">Состав распознан неуверенно. Оценка пока недоступна.</p>
 
         <div v-if="analysisLoading" class="result-state" role="status">Проверяем состав по справочнику...</div>
         <div v-else-if="analysisError" class="result-state result-state--error" role="alert">
@@ -532,13 +567,12 @@ onBeforeUnmount(() => {
           <p v-if="!analysis.verdict.reasons.length">{{ analysis.verdict.description }}</p>
         </div>
 
-        <section v-if="!isProductMissing && hasCompositionData" class="composition">
-          <h2 class="composition__title">
-            Состав продукта
-          </h2>
+        <template v-if="!isProductMissing && hasCompositionData">
+        <details v-for="group in ingredientGroups" :key="group.key" open class="composition" :class="`composition--${group.key}`">
+          <summary class="composition__title">{{ group.title }} ({{ group.items.length }})</summary>
 
-          <div v-if="ingredientItems.length" class="composition__list">
-            <article v-for="item in ingredientItems" :key="item.id" class="ingredient-card">
+          <div class="composition__list">
+            <article v-for="item in group.items" :key="item.id" class="ingredient-card">
               <div class="ingredient-card__main">
                 <h3 class="ingredient-card__name">
                   <RouterLink v-if="item.matchedBy" :to="{ name: 'ingredient', params: { id: item.id } }" class="ingredient-card__link">
@@ -580,14 +614,18 @@ onBeforeUnmount(() => {
             </article>
           </div>
 
-          <p v-else-if="!analysisLoading && !analysisError" class="composition__empty">
-            В составе нет распознанных ингредиентов.
-          </p>
-        </section>
+        </details>
+        <p v-if="!ingredientGroups.length && !analysisLoading && !analysisError" class="composition__empty">Нет подтверждённых ингредиентов.</p>
+        </template>
 
         <p v-else-if="!isProductMissing" class="composition__empty">
           Состав не определен
         </p>
+        <IngredientCorrections v-if="ocrRecord && !analysisLoading && (analysis || needsConfirmation || !hasCompositionData)"
+          :request-id="correctionRequestId" :composition="correctionText" :tokens="correctionTokens"
+          :unmatched="analysis?.unmatched ?? []" :uncertain="needsConfirmation || !hasCompositionData"
+          @corrected="acceptCorrections" />
+        <p v-if="correctionsSaved" class="correction-saved" role="status">Исправления сохранены: {{ correctionsSaved }}</p>
       </template>
     </main>
   </section>
@@ -782,8 +820,7 @@ onBeforeUnmount(() => {
   background-color: #effaf6;
 }
 
-.risk-card--warning,
-.risk-card--avoid {
+.risk-card--warning {
   border-color: #facb7a;
   background-color: #fff8e8;
 }
@@ -966,4 +1003,14 @@ onBeforeUnmount(() => {
 .risk-card--unknown { background: #f0f3f5; border-color: #cdd5da; }
 .risk-card--unknown .risk-card__title { color: #53616a; }
 .verdict-reasons { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+</style>
+
+<style scoped>
+.risk-card--avoid { border-color: #ef9caa; background: #fff0f2; }
+.risk-card--avoid .risk-card__title { color: #b42332; }
+.risk-card__text { overflow-wrap: anywhere; }
+.correction-saved { color: #176c56; font-size: 13px; }
+.composition--excluded > summary { color: #a52639; }
+summary { cursor: pointer; }
+.label-photo img { display: block; max-width: 100%; max-height: 480px; object-fit: contain; margin-top: 12px; }
 </style>

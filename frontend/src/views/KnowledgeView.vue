@@ -1,64 +1,31 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, Search, X } from 'lucide-vue-next';
+import { ArrowLeft, BookOpen, ChevronRight, Search, X } from 'lucide-vue-next';
 import IngredientSafetyBadge from '@/components/IngredientSafetyBadge.vue';
-import { getIngredients, type IngredientPage } from '@/services/backendApi';
+import { useLazyIngredients } from '@/composables/useLazyIngredients';
 
 const route = useRoute();
 const router = useRouter();
 const query = ref('');
 const kind = ref('all');
 const status = ref('all');
-const page = ref<IngredientPage | null>(null);
-const loading = ref(false);
-const error = ref('');
-let controller: AbortController | undefined;
+const { items, total, loading, error, sentinel, hasMore, loadMore } = useLazyIngredients(query, kind, status);
 let timer: ReturnType<typeof setTimeout> | undefined;
 
-function readOffset() {
-  const value = Number(route.query.offset || 0);
-  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
-}
-
-async function load() {
-  controller?.abort();
-  const request = new AbortController();
-  controller = request;
-  loading.value = true;
-  error.value = '';
-  page.value = null;
-  try {
-    const result = await getIngredients(query.value, kind.value, readOffset(), request.signal, status.value);
-    if (!request.signal.aborted) page.value = result;
-  } catch (cause) {
-    if (!request.signal.aborted) error.value = cause instanceof Error ? cause.message : 'Не удалось загрузить ингредиенты';
-  } finally {
-    if (!request.signal.aborted) loading.value = false;
-  }
-}
-
-function navigate(offset = 0) {
+function navigate() {
   clearTimeout(timer);
   const target = { name: 'knowledge', query: {
     ...(query.value.trim() ? { q: query.value.trim() } : {}),
     ...(kind.value !== 'all' ? { kind: kind.value } : {}),
-    ...(status.value !== 'all' ? { status: status.value } : {}),
-    ...(offset ? { offset: String(offset) } : {})
+    ...(status.value !== 'all' ? { status: status.value } : {})
   } };
-  if (router.resolve(target).fullPath === route.fullPath) void load();
-  else void router.replace(target);
+  if (router.resolve(target).fullPath !== route.fullPath) void router.replace(target);
 }
 
 function search() {
   clearTimeout(timer);
-  controller?.abort();
-  page.value = null;
-  loading.value = true;
-  timer = setTimeout(() => {
-    if (query.value.trim() === (route.query.q || '') && readOffset() === 0) void load();
-    else navigate();
-  }, 300);
+  timer = setTimeout(navigate, 300);
 }
 
 watch(() => route.query, () => {
@@ -66,10 +33,9 @@ watch(() => route.query, () => {
   query.value = typeof route.query.q === 'string' ? route.query.q.slice(0, 200) : '';
   kind.value = ['additives', 'foods'].includes(String(route.query.kind)) ? String(route.query.kind) : 'all';
   status.value = ['neutral', 'attention', 'restricted', 'unknown'].includes(String(route.query.status)) ? String(route.query.status) : 'all';
-  void load();
 }, { immediate: true });
 
-onBeforeUnmount(() => { clearTimeout(timer); controller?.abort(); });
+onBeforeUnmount(() => { clearTimeout(timer); });
 </script>
 
 <template>
@@ -105,15 +71,10 @@ onBeforeUnmount(() => { clearTimeout(timer); controller?.abort(); });
           </select>
         </div>
       </div>
-      <p v-if="loading" class="catalog-state" role="status">Загружаем ингредиенты...</p>
-      <div v-else-if="error" class="catalog-state catalog-error" role="alert">
-        <p>{{ error }}</p><button class="text-button" @click="load">Повторить</button>
-      </div>
-      <template v-else-if="page">
-        <p class="catalog-count" role="status">Найдено: {{ page.total }}</p>
-        <p v-if="!page.items.length" class="catalog-state">Ингредиенты не найдены</p>
+        <p v-if="total !== null" class="catalog-count" role="status">Найдено: {{ total }}</p>
+        <p v-if="!loading && !error && total === 0" class="catalog-state">Ингредиенты не найдены</p>
         <ul class="catalog-list">
-          <li v-for="item in page.items" :key="item.id">
+          <li v-for="item in items" :key="item.id">
             <RouterLink :to="{ name: 'ingredient', params: { id: item.id } }" class="catalog-item">
               <div class="catalog-item__body">
                 <span v-if="item.code" class="catalog-code">{{ item.code }}</span>
@@ -125,12 +86,12 @@ onBeforeUnmount(() => { clearTimeout(timer); controller?.abort(); });
             </RouterLink>
           </li>
         </ul>
-        <nav v-if="page.total > page.limit || page.offset" class="pagination" aria-label="Страницы каталога">
-          <button class="icon-button" :disabled="!page.offset" aria-label="Предыдущая страница" title="Предыдущая страница" @click="navigate(Math.max(0, page.offset - page.limit))"><ChevronLeft /></button>
-          <span>{{ Math.floor(page.offset / page.limit) + 1 }} / {{ Math.max(1, Math.ceil(page.total / page.limit)) }}</span>
-          <button class="icon-button" :disabled="page.offset + page.limit >= page.total" aria-label="Следующая страница" title="Следующая страница" @click="navigate(page.offset + page.limit)"><ChevronRight /></button>
-        </nav>
-      </template>
+        <div ref="sentinel" class="catalog-state">
+          <p v-if="loading" role="status">Загружаем ингредиенты...</p>
+          <div v-else-if="error" class="catalog-error" role="alert"><p>{{ error }}</p><button class="text-button" @click="loadMore">Повторить</button></div>
+          <button v-else-if="hasMore" class="text-button" @click="loadMore">Загрузить ещё</button>
+          <span v-else-if="items.length">Все ингредиенты загружены</span>
+        </div>
     </div>
   </section>
 </template>
@@ -166,6 +127,5 @@ h1 { font-size: 20px; line-height: 1.3; overflow-wrap: anywhere; }
 .catalog-state { padding: 40px 8px; text-align: center; color: #66736e; font-size: 14px; line-height: 1.6; }
 .catalog-error { color: #a42e38; }
 .text-button { margin-top: 12px; padding: 10px; border: 0; background: transparent; color: #167759; font: inherit; cursor: pointer; }
-.pagination { display: flex; justify-content: center; align-items: center; gap: 20px; padding-top: 20px; font-size: 13px; }
 :is(button, a, select):focus-visible { outline: 2px solid #25a777; outline-offset: 3px; }
 </style>

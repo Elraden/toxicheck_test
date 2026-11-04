@@ -1,0 +1,107 @@
+name: Check and deploy ToxiCheck
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toxicheck-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Backend tests
+        working-directory: backend
+        run: |
+          python -m pip install -e '.[ocr,scraping]'
+          python -m unittest discover -s tests -p 'test_*.py'
+      - name: Frontend tests and type check
+        working-directory: frontend
+        run: |
+          npm ci
+          node --test tests/*.test.mjs
+          npm run build
+      - name: Deployment configuration
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          SITE_ADDRESS: example.com
+        run: |
+          # Temporary interpolation value only; CI does not connect to production DB.
+          POSTGRES_PASSWORD=$(openssl rand -hex 32)
+          export POSTGRES_PASSWORD
+          bash -n deploy/deploy.sh deploy/backup.sh
+          shellcheck deploy/deploy.sh deploy/backup.sh
+          docker compose -f deploy/compose.yml config --quiet
+
+  deploy:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build images
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 -f backend/Dockerfile -t "toxicheck-api:$RELEASE_SHA" .
+          docker build --platform linux/amd64 -t "toxicheck-web:$RELEASE_SHA" frontend
+          docker save "toxicheck-api:$RELEASE_SHA" "toxicheck-web:$RELEASE_SHA" | gzip -1 > deploy/images.tar.gz
+          (cd deploy && sha256sum images.tar.gz > SHA256SUMS)
+      - name: Upload and deploy
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          : "${DEPLOY_HOST:?Set DEPLOY_HOST}"
+          : "${DEPLOY_PORT:?Set DEPLOY_PORT}"
+          : "${DEPLOY_USER:?Set DEPLOY_USER}"
+          : "${DEPLOY_SSH_KEY:?Set DEPLOY_SSH_KEY}"
+          : "${DEPLOY_KNOWN_HOSTS:?Set DEPLOY_KNOWN_HOSTS}"
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]]
+          umask 077
+          keydir=$(mktemp -d)
+          trap 'rm -rf -- "$keydir"' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$keydir/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$keydir/known_hosts"
+          unset DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS
+          opts=(-i "$keydir/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$keydir/known_hosts" -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          remote="$DEPLOY_USER@$DEPLOY_HOST"
+          release="/opt/toxicheck/releases/$RELEASE_SHA"
+          ssh "${opts[@]}" -p "$DEPLOY_PORT" "$remote" "mkdir -p '$release'"
+          scp "${opts[@]}" -P "$DEPLOY_PORT" deploy/compose.yml deploy/deploy.sh deploy/backup.sh deploy/images.tar.gz deploy/SHA256SUMS "$remote:$release/"
+          ssh "${opts[@]}" -p "$DEPLOY_PORT" "$remote" "bash '$release/deploy.sh' '$RELEASE_SHA'"
+      - name: Deployment summary
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: echo "Deployed commit $RELEASE_SHA. Database and photos remain in persistent Docker volumes." >> "$GITHUB_STEP_SUMMARY"

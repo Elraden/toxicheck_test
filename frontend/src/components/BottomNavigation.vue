@@ -67,3 +67,9 @@ const route = useRoute();
   border-top: 1px solid #dfe6e3;
 }
 </style>
+
+<style scoped>
+@media (orientation: landscape) and (max-height: 600px) {
+  .bottom-navigation { max-width: none; }
+}
+</style>

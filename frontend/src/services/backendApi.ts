@@ -1,11 +1,5 @@
-const DEFAULT_API_BASE_URL = import.meta.env.DEV
-  ? 'http://localhost:8000/api'
-  : '/api';
-
-const apiBaseUrl = (
-  import.meta.env.VITE_API_BASE_URL ||
-  DEFAULT_API_BASE_URL
-).replace(/\/$/, '');
+import { apiBaseUrl, request } from './http';
+import { csrfHeaders, ensureGuestSession } from './userSession';
 
 export type IngredientRule = {
   id: string;
@@ -34,6 +28,7 @@ export type MatchedIngredient = {
 };
 
 export type IngredientAnalysis = {
+  tokens?: string[];
   matched: MatchedIngredient[];
   unmatched: string[];
   verdict: {
@@ -58,22 +53,6 @@ export type PreferenceIngredient = {
   legacy_ids: string[];
 };
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...options,
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...options.headers }
-  });
-  const data = await response.json().catch(() => null);
-  if (!response.ok || data === null) {
-    throw new Error(
-      (typeof data?.detail === 'string' && data.detail) ||
-      (typeof data?.message === 'string' && data.message) ||
-      `Сервис недоступен (${response.status}). Повторите проверку позже.`
-    );
-  }
-  return data as T;
-}
-
 export function analyzeIngredients(ingredientsText: string, excludedIngredientIds: string[], signal?: AbortSignal) {
   return request<IngredientAnalysis>('/analysis', {
     method: 'POST', signal,
@@ -81,8 +60,15 @@ export function analyzeIngredients(ingredientsText: string, excludedIngredientId
   });
 }
 
-export function getPreferenceIngredients(signal?: AbortSignal) {
-  return request<PreferenceIngredient[]>('/preferences/catalog', { signal });
+export async function getSelectedPreferenceIngredients(ids: string[], signal?: AbortSignal) {
+  const result: PreferenceIngredient[] = [];
+  const unique = [...new Set(ids)];
+  for (let offset = 0; offset < unique.length; offset += 100) {
+    const params = new URLSearchParams();
+    unique.slice(offset, offset + 100).forEach(id => params.append('ids', id));
+    result.push(...await request<PreferenceIngredient[]>(`/preferences/catalog?${params}`, { signal }));
+  }
+  return result;
 }
 
 export type IngredientSummary = {
@@ -120,6 +106,8 @@ export function getIngredient(id: string, signal?: AbortSignal) {
 }
 
 export type CompositionScanResponse = {
+  requestId?: string | null;
+  tokens?: string[];
   jobId?: string | null;
   status: string;
   captureSource?: string | null;
@@ -130,6 +118,30 @@ export type CompositionScanResponse = {
   confidence?: number | null;
   processingTimeMs?: number | null;
 };
+
+export type IngredientCorrection = {
+  id: string;
+  tokenIndex: number;
+  tokenRaw: string;
+  correctedText: string;
+};
+
+export type CorrectionsResponse = {
+  saved: number;
+  status: string;
+  ingredientsText: string;
+  analysis: IngredientAnalysis;
+};
+
+export async function saveIngredientCorrections(requestId: string, ingredientsText: string,
+  corrections: IngredientCorrection[], excludedIngredientIds: string[]) {
+  const session = await ensureGuestSession();
+  return request<CorrectionsResponse>('/scan/corrections', {
+    method: 'POST',
+    headers: csrfHeaders(session.csrf),
+    body: JSON.stringify({ requestId, ingredientsText, corrections, preferences: { excludedIngredientIds } })
+  });
+}
 
 export async function scanCompositionImage(
   imageBase64: string,

@@ -9,3 +9,7 @@ body {
   font-family: "Montserrat";
   min-height: 100dvh;
 }
+
+@media (orientation: landscape) and (max-height: 600px) {
+  body { max-width: none; }
+}

@@ -149,7 +149,7 @@ def build_catalog(merged):
     return result
 
 
-def validate_catalog(bundle):
+def validate_catalog(bundle, *, require_parser_profiles=True):
     if bundle.get("metadata", {}).get("dataset") != DATASET or bundle["metadata"].get("schema_version") != SCHEMA_VERSION:
         raise ValueError("Unexpected catalog dataset/version")
     if set(bundle) != set(COLUMNS) | {"metadata"}:
@@ -200,7 +200,7 @@ def validate_catalog(bundle):
         raise ValueError("PHASE_OUT rules must have transition terms")
     profiled = {r["ingredient_id"] for r in bundle["ingredient_profiles"]}
     additives = {r["id"] for r in bundle["ingredients"] if r["e_code"] is not None}
-    if not additives.issubset(profiled):
+    if require_parser_profiles and not additives.issubset(profiled):
         raise ValueError("Missing ingredient profiles")
     if bundle["taxonomy_sources"]:
         from app.db.off_taxonomy import validate_off_catalog
@@ -229,6 +229,9 @@ def main():
         report_temp = args.off_report.with_suffix(args.off_report.suffix + ".tmp")
         report_temp.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         report_temp.replace(args.off_report)
+    from app.db.catalog_supplements import supplement_catalog
+    bundle = supplement_catalog(bundle)
+    validate_catalog(bundle)
     temp = args.output.with_suffix(args.output.suffix + ".tmp")
     temp.write_text(json.dumps(bundle, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temp.replace(args.output)

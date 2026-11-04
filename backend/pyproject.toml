@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Ingredient recognition and risk rules API for ToxiCheck."
 requires-python = ">=3.12"
 dependencies = [
+  "openpyxl>=3.1.5,<4",
+  "Pillow>=10.4.0",
+  "argon2-cffi>=23.1.0,<26",
   "asyncpg>=0.30.0",
   "httpx>=0.27.2",
   "fastapi>=0.115.0",
@@ -13,6 +16,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+scraping = [
+  "beautifulsoup4>=4.12.3"
+]
 ocr = [
   "numpy>=2.0.0",
   "opencv-python-headless>=4.10.0.84",

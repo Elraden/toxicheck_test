@@ -9,9 +9,14 @@ import IngredientView from "./views/IngredientView.vue";
 import PreferencesScreen from "./views/PreferencesScreen.vue";
 import ScannerView from "./views/ScannerView.vue";
 import ProductResultView from "./views/ProductResultView.vue";
+import AdminView from "./views/AdminView.vue";
 
 export const router = createRouter({
   routes: [
+  { path: '/research', name: 'research', component: () => import('./views/ResearchView.vue') },
+  { path: '/research/:runId', name: 'research-run', component: () => import('./views/ResearchRunView.vue') },
+  { path: '/app/admin/research', name: 'research-admin', component: () => import('./views/ResearchAdminView.vue') },
+  { path: '/admin/login', redirect: { name: 'admin' } },
   {
     path: "/",
     name: "splash",
@@ -57,6 +62,7 @@ export const router = createRouter({
     path: "/app",
     component: AppLayout,
     children: [
+      { path: 'admin', name: 'admin', component: AdminView },
       {
       path: '',
       redirect: { name: "home"}
@@ -109,4 +115,8 @@ export const router = createRouter({
   scrollBehavior(_to, _from, savedPosition) {
     return savedPosition || { top: 0 };
   }
+});
+
+router.afterEach((to) => {
+  document.body.classList.toggle('research-mode', to.path.startsWith('/research') || to.path === '/app/admin/research');
 });

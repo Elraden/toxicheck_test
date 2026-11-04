@@ -1,0 +1,19 @@
+{$SITE_ADDRESS} {
+    encode zstd gzip
+    header X-Content-Type-Options nosniff
+    @api path /api /api/*
+    handle @api {
+        reverse_proxy api:8000
+    }
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        header Cache-Control "no-cache"
+        file_server
+    }
+}
+
+# Internal readiness endpoint; port 8080 is not published on the host.
+:8080 {
+    respond /healthz "ok" 200
+}

@@ -8,6 +8,7 @@ from app.schemas.analysis import (
 )
 from app.services.ingredient_resolver import IngredientResolver
 from app.services.verdict_engine import VerdictEngine
+from app.services.normalization import split_ingredients_text
 
 
 class AnalysisService:
@@ -46,4 +47,5 @@ class AnalysisService:
             verdict=verdict,
             matched=resolved.matched,
             unmatched=resolved.unmatched,
+            tokens=split_ingredients_text(ingredients_text),
         )

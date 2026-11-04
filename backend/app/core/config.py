@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     open_food_facts_base_url: str = "https://world.openfoodfacts.org"
     ocr_mode: str = "embedded"
     ocr_service_url: str | None = None
+    guest_session_days: int = Field(default=90, ge=1, le=365)
+    admin_session_hours: int = Field(default=8, ge=1, le=24)
+    admin_idle_minutes: int = Field(default=30, ge=5, le=120)
+    research_storage_dir: str = '.research-photos'
+    research_app_version: str = 'local'
+    research_pipeline_version: str = 'embedded-adaptive-v1'
+
+    @property
+    def secure_cookies(self) -> bool:
+        return self.app_env.lower() not in {"local", "test"}
 
     @model_validator(mode="after")
     def normalize_database_url(self) -> "Settings":

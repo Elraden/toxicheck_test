@@ -1,10 +1,9 @@
 import copy
 import unittest
 from datetime import date, datetime
-from unittest.mock import AsyncMock
 
 from app.db.build_regulatory_data import build_bundle, validate_bundle
-from app.db.import_regulatory_data import _apply_schema, _as_date, _as_timestamp
+from app.db.import_catalog import SCHEMA, sql_value
 from app.schemas.ingredients import IngredientRuleOut
 from app.services.ingredient_resolver import IngredientResolver
 from app.services.normalization import normalize_e_code, normalize_text
@@ -102,18 +101,15 @@ class RegulatoryDataTests(unittest.TestCase):
         self.assertEqual(self.by_code["E181"]["canonical_name_ru"], "Танины пищевые")
 
     def test_asyncpg_dates_are_native_types(self):
-        self.assertIsInstance(_as_date("2024-02-27"), date)
-        self.assertIsInstance(_as_timestamp("2026-09-14T00:00:00Z"), datetime)
-        self.assertIsNotNone(_as_timestamp(None).tzinfo)
+        self.assertIsInstance(sql_value("effective_from", "2024-02-27"), date)
+        self.assertIsInstance(sql_value("fetched_at", "2026-09-14T00:00:00Z"), datetime)
+        self.assertIsNone(sql_value("fetched_at", None))
 
 
 class ImportSchemaTests(unittest.IsolatedAsyncioTestCase):
     async def test_schema_does_not_commit_the_import_transaction(self):
-        connection = AsyncMock()
-        await _apply_schema(connection)
-        connection.execute.assert_awaited_once()
-        sql = connection.execute.call_args.args[0]
-        self.assertIn("ALTER COLUMN ingredient_id DROP NOT NULL", sql)
+        sql = SCHEMA.read_text(encoding="utf-8")
+        self.assertIn("CREATE TABLE IF NOT EXISTS catalog.ingredients", sql)
         self.assertNotRegex(sql, r"(?im)^\s*(BEGIN|COMMIT|ROLLBACK)\s*;")
 
 

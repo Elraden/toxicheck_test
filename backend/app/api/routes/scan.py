@@ -1,4 +1,5 @@
 import logging
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from app.schemas.scan import (
 from app.services.analysis_service import AnalysisService
 from app.services.ocr_service import OcrService
 from app.services.scan_service import ScanService
+from app.services.normalization import split_ingredients_text
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -65,6 +67,8 @@ async def scan_composition(
         confidence=result.confidence,
         processingTimeMs=result.processing_time_ms,
         analysis=analysis,
+        requestId=str(uuid4()),
+        tokens=split_ingredients_text(result.composition_text or result.raw_text or ""),
     )
 
 

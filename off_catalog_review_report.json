@@ -1,0 +1,1148 @@
+{
+  "source_sha256": "cdadbefff0faa9932851f7b28e6192489630f0a02832c9e6f66f74de2b2dc117",
+  "database_uploaded": true,
+  "database_import": {
+    "import_run_id": 2,
+    "imported_at": "2026-09-30T17:59:18.765470+00:00",
+    "verified_on": "2026-10-01",
+    "catalog_sha256": "428d2be7fd141089a5bdb857d6d08e314c7ee3684a77733389a33bdd779a28d9",
+    "schema_version": 2,
+    "mode": "replace_data",
+    "all_table_counts_match": true
+  },
+  "parsing": {
+    "duplicate_blocks": [
+      {
+        "taxonomy_key": "en:whole wheat kernels",
+        "line": 24086
+      },
+      {
+        "taxonomy_key": "en:kodo millet",
+        "line": 25881
+      },
+      {
+        "taxonomy_key": "en:little millet",
+        "line": 25886
+      },
+      {
+        "taxonomy_key": "en:wild blueberry",
+        "line": 43762
+      },
+      {
+        "taxonomy_key": "en:broccoli",
+        "line": 54195
+      },
+      {
+        "taxonomy_key": "en:broccoli floret",
+        "line": 54293
+      },
+      {
+        "taxonomy_key": "en:broccoli cress",
+        "line": 54321
+      },
+      {
+        "taxonomy_key": "en:romanesco broccoli",
+        "line": 54332
+      },
+      {
+        "taxonomy_key": "en:brussels sprouts",
+        "line": 54368
+      },
+      {
+        "taxonomy_key": "en:gai lan",
+        "line": 54502
+      },
+      {
+        "taxonomy_key": "en:chinese cabbage",
+        "line": 54537
+      },
+      {
+        "taxonomy_key": "en:pak choi",
+        "line": 54606
+      },
+      {
+        "taxonomy_key": "en:red cabbage",
+        "line": 54684
+      },
+      {
+        "taxonomy_key": "en:hyacinth bean",
+        "line": 62698
+      },
+      {
+        "taxonomy_key": "en:summer savory",
+        "line": 71308
+      },
+      {
+        "taxonomy_key": "de:aufguss aus schwarztee und kräutertee",
+        "line": 75517
+      },
+      {
+        "taxonomy_key": "de:aufguss aus weissem tee und holunderblüte",
+        "line": 75765
+      }
+    ],
+    "ignored_directives": 65,
+    "unparsed_lines": []
+  },
+  "code_review": [
+    {
+      "taxonomy_key": "en:sodium cyclamate",
+      "line": 881,
+      "codes": [
+        "E952(IV)"
+      ],
+      "original_codes": [
+        "E-952iv",
+        "E952(iv)",
+        "E952iv"
+      ]
+    }
+  ],
+  "property_conflicts": [
+    {
+      "taxonomy_key": "en:hyacinth bean",
+      "property": "usda_fdc_code",
+      "language": "en",
+      "values": [
+        "169234",
+        "175210"
+      ]
+    },
+    {
+      "taxonomy_key": "en:hyacinth bean",
+      "property": "usda_ndb_code",
+      "language": "en",
+      "values": [
+        "11224",
+        "16067"
+      ]
+    },
+    {
+      "taxonomy_key": "en:hyacinth bean",
+      "property": "usda_ndb_name",
+      "language": "en",
+      "values": [
+        "Hyacinth beans, mature seeds, raw",
+        "Hyacinth-beans, immature seeds, raw"
+      ]
+    }
+  ],
+  "unresolved_parents": [
+    {
+      "taxonomy_key": "en:soya lecithin",
+      "parent": "en:E322i",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:sunflower lecithin",
+      "parent": "en:E322(i)",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:rapeseed lecithin",
+      "parent": "en:E322(i)",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "de:flüssiges pektin",
+      "parent": "en:E440",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:fruit pectin",
+      "parent": "en:E440",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:mono and diglycerides of fatty acids of vegetable origin",
+      "parent": "en:E471",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "fr:mono- et diglycérides d'acides gras et stéaroyl-2-lactylate de sodium",
+      "parent": "en:E471",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "fr:mono- et diglycérides d'acides gras et stéaroyl-2-lactylate de sodium",
+      "parent": "en:sodium stearoyl-2-lactylate",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:nigari",
+      "parent": "en:E511",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:white and yellow beeswax",
+      "parent": "en:E901",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "nl:e942 en e941",
+      "parent": "en:E941",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "nl:e942 en e941",
+      "parent": "en:E942",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:lysozyme from eggs",
+      "parent": "en:E1105",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:tapioca dextrin",
+      "parent": "en:E1400",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:potato dextrin",
+      "parent": "en:E1400",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "bg:пшеничен декстрин",
+      "parent": "en:E1400",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:corn dextrin",
+      "parent": "en:E1400",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "fr:riz thaï complet étuvé",
+      "parent": "en:Thaï rice",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:peruvian carob gum",
+      "parent": "en:E410",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:xanthan gum and guar gum",
+      "parent": "en:xanthan gum",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:maltitol syrup",
+      "parent": "en:maltitol",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "fi:sorbitolia ja glyserolia",
+      "parent": "en:E420",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "bg:сорбитолов сироп",
+      "parent": "en:E420(ii)",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:oligosaccharides",
+      "parent": "en:sweetener",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:fructooligosaccharide",
+      "parent": "en:sweetener",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:mannan oligosaccharides",
+      "parent": "en:sweetener",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:monk fruit extract",
+      "parent": "en:sweetener",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:milk chocolate with sweetener",
+      "parent": "en:sweetener",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:bramley apple purée",
+      "parent": "en:apple purée",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "fr:purée de pommes françaises",
+      "parent": "en:apple purée",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "de:apfel-püree konzentriert",
+      "parent": "en:apple purée",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:black carrot",
+      "parent": "en:anthocyanin",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:sorrel or acid",
+      "parent": "en:acid",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:immature winged bean seed",
+      "parent": "en:winged bean",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:aromatic caramel",
+      "parent": "en:caramel",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:vitamin and mineral blend",
+      "parent": "en:Minerals",
+      "reason": "missing"
+    },
+    {
+      "taxonomy_key": "en:vitamin and mineral blend",
+      "parent": "en:Vitamins",
+      "reason": "missing"
+    }
+  ],
+  "untranslated_entries": 4613,
+  "added_ingredients": 988,
+  "exact_code_matches": 3,
+  "ambiguous_aliases": [
+    {
+      "normalized_alias": "1",
+      "candidates": [
+        {
+          "ingredient_id": "0411608c-a3d5-5043-b030-2c38ed1d86de",
+          "name": "Триацетин",
+          "e_code": "E1518"
+        },
+        {
+          "ingredient_id": "f9f4d3df-c3bf-513e-951a-fee45c9aef01",
+          "name": "Муравьиная кислота",
+          "e_code": "E236"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "acetic and fatty acid esters of glycerol",
+      "candidates": [
+        {
+          "ingredient_id": "00fa2cf3-75b0-5f24-b028-30077dd44068",
+          "name": "Глицерина и винной, уксусной и жирных кислот смешанные эфиры",
+          "e_code": "E472f"
+        },
+        {
+          "ingredient_id": "4692ccea-9e0d-5232-ad8f-6faaa3eda1d9",
+          "name": "Глицерина и уксусной и жирных кислот эфиры",
+          "e_code": "E472a"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "amaranth",
+      "candidates": [
+        {
+          "ingredient_id": "4ce84705-f7b4-597c-bee9-9ad644d6e630",
+          "name": "Амарант",
+          "e_code": "E123"
+        },
+        {
+          "ingredient_id": "fd3971bc-131d-583c-887a-b6317db31e56",
+          "name": "Амарант",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "dimagnesium diphosphate",
+      "candidates": [
+        {
+          "ingredient_id": "13ce6270-f5c6-5a2f-935c-be3b47a6fc7a",
+          "name": "Пирофосфат димагния",
+          "e_code": "E450(viii)"
+        },
+        {
+          "ingredient_id": "b551901f-50d1-51f9-b3bf-4ed989035f44",
+          "name": "Дигидрофосфат магния",
+          "e_code": "E450(ix)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "e 425 i",
+      "candidates": [
+        {
+          "ingredient_id": "090920b6-e159-5322-9d40-5b52581fdf66",
+          "name": "Полифосфат натрия",
+          "e_code": "E452(i)"
+        },
+        {
+          "ingredient_id": "b235621f-8f14-5577-90ee-de56f7201889",
+          "name": "Конжаковая камедь",
+          "e_code": "E425(i)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "e 425i",
+      "candidates": [
+        {
+          "ingredient_id": "090920b6-e159-5322-9d40-5b52581fdf66",
+          "name": "Полифосфат натрия",
+          "e_code": "E452(i)"
+        },
+        {
+          "ingredient_id": "b235621f-8f14-5577-90ee-de56f7201889",
+          "name": "Конжаковая камедь",
+          "e_code": "E425(i)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "l",
+      "candidates": [
+        {
+          "ingredient_id": "1893a4a9-87e5-55c7-a68c-3285c0222fc0",
+          "name": "Цистеин, L- и его гидрохлориды - натриевая и калиевая соли",
+          "e_code": "E920"
+        },
+        {
+          "ingredient_id": "af07f1db-f830-5b8f-b77a-db5f1224b152",
+          "name": "Глутаминовая кислота, L(+)-",
+          "e_code": "E620"
+        },
+        {
+          "ingredient_id": "fb1f9d56-7946-5ff6-afc8-7c3c89b46729",
+          "name": "Винная кислота",
+          "e_code": "E334"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "magnesium silicates",
+      "candidates": [
+        {
+          "ingredient_id": "944b75b1-9cb8-5c23-8779-e68bea5ad31d",
+          "name": "Силикаты магния",
+          "e_code": "E553"
+        },
+        {
+          "ingredient_id": "a791c525-b999-5010-8057-aca31b12a5da",
+          "name": "Силикаты магния",
+          "e_code": "E553a"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "paprika",
+      "candidates": [
+        {
+          "ingredient_id": "a9c04c13-15af-5e84-8314-7defce280375",
+          "name": "Маслосмолы паприки",
+          "e_code": "E160c"
+        },
+        {
+          "ingredient_id": "bfc9362a-6e76-5d6c-941a-a90f79903449",
+          "name": "паприка",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "soy lecithin",
+      "candidates": [
+        {
+          "ingredient_id": "6573eb6f-25ef-5a59-b60f-eb167f00b27a",
+          "name": "соевый лецитин",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "cac601c1-f2fe-5d90-a765-bd835b8ae5ec",
+          "name": "Лецитины",
+          "e_code": "E322"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "soya lecithin",
+      "candidates": [
+        {
+          "ingredient_id": "6573eb6f-25ef-5a59-b60f-eb167f00b27a",
+          "name": "соевый лецитин",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "783aedb9-dc9f-5b55-b037-08cb24d43932",
+          "name": "Лецитин",
+          "e_code": "E322(i)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "soybean lecithin",
+      "candidates": [
+        {
+          "ingredient_id": "6573eb6f-25ef-5a59-b60f-eb167f00b27a",
+          "name": "соевый лецитин",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "783aedb9-dc9f-5b55-b037-08cb24d43932",
+          "name": "Лецитин",
+          "e_code": "E322(i)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "turmeric",
+      "candidates": [
+        {
+          "ingredient_id": "2a2a6b3f-cb77-5860-ade2-124f0b733b0a",
+          "name": "Турмерик",
+          "e_code": "E100(ii)"
+        },
+        {
+          "ingredient_id": "3169f6ce-c46f-5ae1-ac12-fa5dac0d600f",
+          "name": "куркума",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "амарант",
+      "candidates": [
+        {
+          "ingredient_id": "4ce84705-f7b4-597c-bee9-9ad644d6e630",
+          "name": "Амарант",
+          "e_code": "E123"
+        },
+        {
+          "ingredient_id": "fd3971bc-131d-583c-887a-b6317db31e56",
+          "name": "Амарант",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "биксин",
+      "candidates": [
+        {
+          "ingredient_id": "0cb88819-b664-5987-a7a8-703378c2cbea",
+          "name": "Аннато, экстрагированный маслом",
+          "e_code": "E160b(iii)"
+        },
+        {
+          "ingredient_id": "8df8808b-6a22-58a0-98f1-9d847fb5985f",
+          "name": "Аннато экстракты",
+          "e_code": "E160b"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "е 322i",
+      "candidates": [
+        {
+          "ingredient_id": "783aedb9-dc9f-5b55-b037-08cb24d43932",
+          "name": "Лецитин",
+          "e_code": "E322(i)"
+        },
+        {
+          "ingredient_id": "ad36928b-5f22-5f0f-86c8-e3e90a051c2c",
+          "name": "Частично гидролизованный лецитин",
+          "e_code": "E322(ii)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "е322i",
+      "candidates": [
+        {
+          "ingredient_id": "783aedb9-dc9f-5b55-b037-08cb24d43932",
+          "name": "Лецитин",
+          "e_code": "E322(i)"
+        },
+        {
+          "ingredient_id": "ad36928b-5f22-5f0f-86c8-e3e90a051c2c",
+          "name": "Частично гидролизованный лецитин",
+          "e_code": "E322(ii)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "е450i",
+      "candidates": [
+        {
+          "ingredient_id": "7eed1302-8426-52f6-bfe6-f1a522267a28",
+          "name": "Дигидропирофосфат натрия",
+          "e_code": "E450(i)"
+        },
+        {
+          "ingredient_id": "c97ef96a-985d-5017-a311-62e6b39df6e5",
+          "name": "Моногидропирофосфат натрия",
+          "e_code": "E450(ii)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "е954 i",
+      "candidates": [
+        {
+          "ingredient_id": "ba55ce6f-7025-55c1-aef6-c36c86cb42d2",
+          "name": "Сахаринат натрия",
+          "e_code": "E954(ii)"
+        },
+        {
+          "ingredient_id": "c29c3763-0dd8-5e71-8c33-544826934f59",
+          "name": "Сахарин",
+          "e_code": "E954(i)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "е954i",
+      "candidates": [
+        {
+          "ingredient_id": "ba55ce6f-7025-55c1-aef6-c36c86cb42d2",
+          "name": "Сахаринат натрия",
+          "e_code": "E954(ii)"
+        },
+        {
+          "ingredient_id": "c29c3763-0dd8-5e71-8c33-544826934f59",
+          "name": "Сахарин",
+          "e_code": "E954(i)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "какао тертое",
+      "candidates": [
+        {
+          "ingredient_id": "53596a47-f04e-5316-a6a8-d215fcec8326",
+          "name": "какао",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "94018b78-2aef-5eaa-9a94-4bb8ca8a92c6",
+          "name": "какао тертое",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "карбоксиметилцеллюлоза",
+      "candidates": [
+        {
+          "ingredient_id": "ade6da52-43db-5a7b-b024-c115fd07cbaf",
+          "name": "Карбоксиметилцеллюлоза ферментативно гидролизованная",
+          "e_code": "E469"
+        },
+        {
+          "ingredient_id": "d89eecee-4d0f-5043-ae9b-c234cac2692e",
+          "name": "Карбоксиметилцеллюлоза",
+          "e_code": "E466"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "карбонат кальция",
+      "candidates": [
+        {
+          "ingredient_id": "58141742-5c95-5557-a3f0-08ee2c3fb0f6",
+          "name": "Карбонат кальция",
+          "e_code": "E170(i)"
+        },
+        {
+          "ingredient_id": "6a6592b5-51dc-59e5-aed8-d15d05d369ac",
+          "name": "Карбонаты кальция",
+          "e_code": "E170"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "каротин",
+      "candidates": [
+        {
+          "ingredient_id": "2de59af3-c54d-567a-a26d-c14f56198c58",
+          "name": "Каротин",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "db31e975-bec8-5935-a927-41bbca4dfb1e",
+          "name": "Каротины",
+          "e_code": "E160a"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "кислота уксусная",
+      "candidates": [
+        {
+          "ingredient_id": "1afc12d4-0798-5288-bbdb-6c92d1013a88",
+          "name": "уксус",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "87456268-80be-55bb-b947-1c93b5180951",
+          "name": "Уксусная кислота",
+          "e_code": "E260"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "крахмал",
+      "candidates": [
+        {
+          "ingredient_id": "560b1b32-02e1-500d-98d8-8e83610021eb",
+          "name": "Крахмал, обработанный кислотой",
+          "e_code": "E1401"
+        },
+        {
+          "ingredient_id": "72f14f3f-0039-584c-98a8-f3dc72c5e813",
+          "name": "Крахмал",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "bac5f7ec-2c85-50b2-b4e1-5f5cd4bbb48d",
+          "name": "Крахмал, обработанный ферментными препаратами",
+          "e_code": "E1405"
+        },
+        {
+          "ingredient_id": "e3d2db7a-7bc2-55ef-8077-3b23581a6137",
+          "name": "Крахмал, обработанный щелочью",
+          "e_code": "E1402"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "крахмал модифицированный",
+      "candidates": [
+        {
+          "ingredient_id": "0d94ebde-46ac-5f01-a923-05203e86fa99",
+          "name": "Дикрахмалфосфат ацетилированный \"сшитый\"",
+          "e_code": "E1414"
+        },
+        {
+          "ingredient_id": "23e49dd2-e738-5b8b-96a3-71f1674cb685",
+          "name": "Дикрахмаладипат ацетилированный",
+          "e_code": "E1422"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "крахмал обработанный щелочью",
+      "candidates": [
+        {
+          "ingredient_id": "3c652869-27fe-5dea-9827-97508df676e8",
+          "name": "Крахмал, обработанный щелочью",
+          "e_code": "E1404"
+        },
+        {
+          "ingredient_id": "e3d2db7a-7bc2-55ef-8077-3b23581a6137",
+          "name": "Крахмал, обработанный щелочью",
+          "e_code": "E1402"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "куркума",
+      "candidates": [
+        {
+          "ingredient_id": "2a2a6b3f-cb77-5860-ade2-124f0b733b0a",
+          "name": "Турмерик",
+          "e_code": "E100(ii)"
+        },
+        {
+          "ingredient_id": "3169f6ce-c46f-5ae1-ac12-fa5dac0d600f",
+          "name": "куркума",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "куркумин",
+      "candidates": [
+        {
+          "ingredient_id": "3169f6ce-c46f-5ae1-ac12-fa5dac0d600f",
+          "name": "куркума",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "72637ab2-3eb8-5e2f-a1ec-c27eaa699cb7",
+          "name": "Куркумин",
+          "e_code": "E100(i)"
+        },
+        {
+          "ingredient_id": "a94095e7-79f0-5828-9ca2-c5029052af1f",
+          "name": "Куркумины",
+          "e_code": "E100"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "лецитин подсолнечный",
+      "candidates": [
+        {
+          "ingredient_id": "1d5818e7-733d-51f9-aeb7-b8b7511ca2bc",
+          "name": "лецитин подсолнечный",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "783aedb9-dc9f-5b55-b037-08cb24d43932",
+          "name": "Лецитин",
+          "e_code": "E322(i)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "лецитин соевый",
+      "candidates": [
+        {
+          "ingredient_id": "6573eb6f-25ef-5a59-b60f-eb167f00b27a",
+          "name": "соевый лецитин",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "783aedb9-dc9f-5b55-b037-08cb24d43932",
+          "name": "Лецитин",
+          "e_code": "E322(i)"
+        },
+        {
+          "ingredient_id": "cac601c1-f2fe-5d90-a765-bd835b8ae5ec",
+          "name": "Лецитины",
+          "e_code": "E322"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "мальтит",
+      "candidates": [
+        {
+          "ingredient_id": "1a87fca5-9486-5330-b92e-87272d15373f",
+          "name": "Мальтитол",
+          "e_code": "E965(i)"
+        },
+        {
+          "ingredient_id": "c67d94a4-8c84-5b74-8657-f5888d860478",
+          "name": "Мальтит",
+          "e_code": "E965"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "медные комплексы хлорофиллов",
+      "candidates": [
+        {
+          "ingredient_id": "328d6bfd-3491-50a9-afbb-ca8ca686bb9f",
+          "name": "Медные комплексы хлорофиллов и хлорофиллинов",
+          "e_code": "E141"
+        },
+        {
+          "ingredient_id": "e2dbf23a-4bfe-596f-b9a6-f395f4c0ce5c",
+          "name": "Медные комплексы хлорофиллов",
+          "e_code": "E141(i)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "модифицированный крахмал",
+      "candidates": [
+        {
+          "ingredient_id": "0d94ebde-46ac-5f01-a923-05203e86fa99",
+          "name": "Дикрахмалфосфат ацетилированный \"сшитый\"",
+          "e_code": "E1414"
+        },
+        {
+          "ingredient_id": "8f102312-d16b-5b06-aabb-de2630c096ef",
+          "name": "Модифицированный крахмал",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "норбиксин",
+      "candidates": [
+        {
+          "ingredient_id": "8df8808b-6a22-58a0-98f1-9d847fb5985f",
+          "name": "Аннато экстракты",
+          "e_code": "E160b"
+        },
+        {
+          "ingredient_id": "f23cc542-5eb5-5e9d-97a5-eb78835edfc6",
+          "name": "Аннато, экстрагированный щёлочью",
+          "e_code": "E160b(ii)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "паприка",
+      "candidates": [
+        {
+          "ingredient_id": "a9c04c13-15af-5e84-8314-7defce280375",
+          "name": "Маслосмолы паприки",
+          "e_code": "E160c"
+        },
+        {
+          "ingredient_id": "bfc9362a-6e76-5d6c-941a-a90f79903449",
+          "name": "паприка",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "позиция исключена с 27 февраля 2024 года решениесоветаеэкот29 августа2023 годаn 84",
+      "candidates": [
+        {
+          "ingredient_id": "5c20def1-ff2e-53e2-bf72-abe78b69ea6e",
+          "name": "Изомальт",
+          "e_code": "E953"
+        },
+        {
+          "ingredient_id": "db31e975-bec8-5935-a927-41bbca4dfb1e",
+          "name": "Каротины",
+          "e_code": "E160a"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "рибофлавин",
+      "candidates": [
+        {
+          "ingredient_id": "b2e0f077-67aa-5bcd-be9b-e4e828df9e02",
+          "name": "Рибофлавин синтетический",
+          "e_code": "E101(i)"
+        },
+        {
+          "ingredient_id": "d32a3bd3-9812-5204-8c88-6f5c1cabd204",
+          "name": "Рибофлавины",
+          "e_code": "E101"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "силикаты магния",
+      "candidates": [
+        {
+          "ingredient_id": "944b75b1-9cb8-5c23-8779-e68bea5ad31d",
+          "name": "Силикаты магния",
+          "e_code": "E553"
+        },
+        {
+          "ingredient_id": "a791c525-b999-5010-8057-aca31b12a5da",
+          "name": "Силикаты магния",
+          "e_code": "E553a"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "соевый лецитин",
+      "candidates": [
+        {
+          "ingredient_id": "6573eb6f-25ef-5a59-b60f-eb167f00b27a",
+          "name": "соевый лецитин",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "783aedb9-dc9f-5b55-b037-08cb24d43932",
+          "name": "Лецитин",
+          "e_code": "E322(i)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "сорбит",
+      "candidates": [
+        {
+          "ingredient_id": "01a69405-cda1-592f-8ac7-8e5cbafb35da",
+          "name": "Сорбит и собрбитовый сироп",
+          "e_code": "E420"
+        },
+        {
+          "ingredient_id": "d9a15ff4-98e6-5c13-9aee-0cf08c9621f6",
+          "name": "Сорбит",
+          "e_code": "E420(i)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "спирт этиловый",
+      "candidates": [
+        {
+          "ingredient_id": "a29edcad-e8f9-5148-9dbe-cf8a8db19827",
+          "name": "Этанол",
+          "e_code": "E1510"
+        },
+        {
+          "ingredient_id": "dcaeb367-34b0-5d8b-9350-7ee75953dc3e",
+          "name": "этанол",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "топленое масло",
+      "candidates": [
+        {
+          "ingredient_id": "5fb857e7-e28d-5d1d-a6c6-d35a079f2b64",
+          "name": "Молочный жир",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "977a8397-46ad-5fad-b1df-65522b0e2351",
+          "name": "Топлёное масло",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "уксус натуральный",
+      "candidates": [
+        {
+          "ingredient_id": "1afc12d4-0798-5288-bbdb-6c92d1013a88",
+          "name": "уксус",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "87456268-80be-55bb-b947-1c93b5180951",
+          "name": "Уксусная кислота",
+          "e_code": "E260"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "уксус пищевой",
+      "candidates": [
+        {
+          "ingredient_id": "1afc12d4-0798-5288-bbdb-6c92d1013a88",
+          "name": "уксус",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "87456268-80be-55bb-b947-1c93b5180951",
+          "name": "Уксусная кислота",
+          "e_code": "E260"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "уксус столовый",
+      "candidates": [
+        {
+          "ingredient_id": "1afc12d4-0798-5288-bbdb-6c92d1013a88",
+          "name": "уксус",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "87456268-80be-55bb-b947-1c93b5180951",
+          "name": "Уксусная кислота",
+          "e_code": "E260"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "уксусная кислота",
+      "candidates": [
+        {
+          "ingredient_id": "1afc12d4-0798-5288-bbdb-6c92d1013a88",
+          "name": "уксус",
+          "e_code": null
+        },
+        {
+          "ingredient_id": "87456268-80be-55bb-b947-1c93b5180951",
+          "name": "Уксусная кислота",
+          "e_code": "E260"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "хлорофилл",
+      "candidates": [
+        {
+          "ingredient_id": "3918c4c4-1130-5ec5-998a-58daa72a8367",
+          "name": "Хлорофиллы",
+          "e_code": "E140(i)"
+        },
+        {
+          "ingredient_id": "eedee729-b508-53ba-9ff2-a6422e9cfcdc",
+          "name": "Хлорофиллы и хлорофиллины",
+          "e_code": "E140"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "экстракт паприки",
+      "candidates": [
+        {
+          "ingredient_id": "a9c04c13-15af-5e84-8314-7defce280375",
+          "name": "Маслосмолы паприки",
+          "e_code": "E160c"
+        },
+        {
+          "ingredient_id": "d6d8a9cf-aa5f-5207-be3c-1441118eb905",
+          "name": "Экстракт паприки",
+          "e_code": "E160c(ii)"
+        }
+      ]
+    },
+    {
+      "normalized_alias": "этанол",
+      "candidates": [
+        {
+          "ingredient_id": "a29edcad-e8f9-5148-9dbe-cf8a8db19827",
+          "name": "Этанол",
+          "e_code": "E1510"
+        },
+        {
+          "ingredient_id": "dcaeb367-34b0-5d8b-9350-7ee75953dc3e",
+          "name": "этанол",
+          "e_code": null
+        }
+      ]
+    },
+    {
+      "normalized_alias": "эфиры глицерина",
+      "candidates": [
+        {
+          "ingredient_id": "3453e1f7-1ffe-5f67-9283-71a2cd94c88b",
+          "name": "Глицерина и диацетилвинной и жирных кислот эфиры",
+          "e_code": "E472e"
+        },
+        {
+          "ingredient_id": "cd4036eb-e032-5300-a862-8162fb0e5277",
+          "name": "Эфиры глицерина лимонной и жирных кислот",
+          "e_code": "E472c"
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "regulatory_sources": 7,
+    "ingredients": 1490,
+    "ingredient_aliases": 5911,
+    "ingredient_rules": 358,
+    "rule_evidence": 375,
+    "rule_transitions": 17,
+    "ingredient_profiles": 502,
+    "ingredient_tags": 1828,
+    "documents": 103,
+    "document_links": 97,
+    "ingredient_references": 3128,
+    "ingredient_relations": 568,
+    "ingredient_matches": 367,
+    "taxonomy_sources": 1,
+    "taxonomy_entries": 5605,
+    "taxonomy_parents": 6079,
+    "taxonomy_properties": 11158,
+    "ingredient_alias_review": 183
+  },
+  "quarantined_aliases": 183
+}

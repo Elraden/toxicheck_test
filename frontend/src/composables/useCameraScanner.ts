@@ -324,7 +324,7 @@ export function useCameraScanner() {
     }
   }
 
-  async function openCamera(): Promise<void> {
+  async function openCamera(orientation: 'landscape' | 'portrait' = 'landscape'): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error(
         'Браузер не поддерживает работу с камерой'
@@ -341,7 +341,11 @@ export function useCameraScanner() {
 
     const stream =
       await navigator.mediaDevices.getUserMedia(
-        cameraConstraints
+        { audio: false, video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: orientation === 'landscape' ? 1920 : 1080 },
+          height: { ideal: orientation === 'landscape' ? 1080 : 1920 }
+        } }
       );
 
     mediaStream = stream;
