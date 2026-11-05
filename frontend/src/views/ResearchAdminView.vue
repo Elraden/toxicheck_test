@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { apiBaseUrl, request } from '@/services/http';
 import { refreshSession } from '@/services/userSession';
 import { researchWrite, photoUrl, duration, stageNames, validationNames, answerNames, attemptNames,
   type Study, type RunSummary, type ResearchRun, type Validation } from '@/services/research';
 import '@/research.css';
 
+const router = useRouter();
 const authorized = ref(false), busy = ref(false), error = ref(''), message = ref('');
 const studies = ref<Study[]>([]), rows = ref<RunSummary[]>([]), total = ref(0), offset = ref(0);
 const studyId = ref(''), participantId = ref(''), caseId = ref(''), stage = ref(''), validationStatus = ref(''), since = ref(''), until = ref(''), errorsOnly = ref(false);
@@ -95,7 +97,7 @@ async function exportData() {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   });
 }
-function shareLink(id: string) { return `${window.location.origin}/research?study=${id}`; }
+function shareLink(id: string) { return new URL(router.resolve({ name: 'research', query: { study: id } }).href, window.location.origin).href; }
 async function link() {
   if (!detail.value) return;
   await task(async () => {
@@ -106,7 +108,7 @@ async function link() {
 onMounted(initialize);
 </script>
 <template>
-  <main class="research-shell">
+  <section class="research-shell">
     <header class="research-heading"><RouterLink to="/app/admin">← Админ-режим</RouterLink><span class="research-tag">Кабинет исследователя</span></header>
     <h1>Исследования ToxiCheck</h1>
     <p v-if="busy" role="status">Выполняем запрос…</p><p v-if="error" role="alert" class="research-error">{{ error }}</p><p v-if="message" role="status" class="research-note">{{ message }}</p>
@@ -167,5 +169,5 @@ onMounted(initialize);
         <section class="research-card"><h2>Выгрузка по выбранным фильтрам</h2><p>ZIP: CSV, Excel, полные данные JSON и список фотографий. Итоговые метрики рассчитываются после выгрузки.</p><label class="research-check"><input v-model="includePhotos" type="checkbox">Включить исходные фотографии</label><button class="research-primary" :disabled="busy" @click="exportData">Скачать архив</button></section>
       </template>
     </template>
-  </main>
+  </section>
 </template>

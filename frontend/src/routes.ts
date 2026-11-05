@@ -13,9 +13,6 @@ import AdminView from "./views/AdminView.vue";
 
 export const router = createRouter({
   routes: [
-  { path: '/research', name: 'research', component: () => import('./views/ResearchView.vue') },
-  { path: '/research/:runId', name: 'research-run', component: () => import('./views/ResearchRunView.vue') },
-  { path: '/app/admin/research', name: 'research-admin', component: () => import('./views/ResearchAdminView.vue') },
   { path: '/admin/login', redirect: { name: 'admin' } },
   {
     path: "/",
@@ -63,6 +60,9 @@ export const router = createRouter({
     component: AppLayout,
     children: [
       { path: 'admin', name: 'admin', component: AdminView },
+      { path: 'research', alias: '/research', name: 'research', component: () => import('./views/ResearchView.vue') },
+      { path: 'research/:runId', alias: '/research/:runId', name: 'research-run', component: () => import('./views/ResearchRunView.vue') },
+      { path: 'admin/research', name: 'research-admin', component: () => import('./views/ResearchAdminView.vue') },
       {
       path: '',
       redirect: { name: "home"}
@@ -115,8 +115,4 @@ export const router = createRouter({
   scrollBehavior(_to, _from, savedPosition) {
     return savedPosition || { top: 0 };
   }
-});
-
-router.afterEach((to) => {
-  document.body.classList.toggle('research-mode', to.path.startsWith('/research') || to.path === '/app/admin/research');
 });

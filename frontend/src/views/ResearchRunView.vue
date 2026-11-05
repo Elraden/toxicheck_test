@@ -162,8 +162,8 @@ watch(runId, load, { immediate: true });
 onBeforeUnmount(() => { clearInterval(ticker); clearTimeout(draftTimer); });
 </script>
 <template>
-  <main class="research-shell">
-    <header class="research-heading"><RouterLink to="/research">← Мои исследования</RouterLink><span v-if="run" class="research-tag">{{ stageNames[run.stage] }}</span></header>
+  <section class="research-shell">
+    <header class="research-heading"><RouterLink :to="{ name: 'research' }">← Мои исследования</RouterLink><span v-if="run" class="research-tag">{{ stageNames[run.stage] }}</span></header>
     <p v-if="error" class="research-error" role="alert">{{ error }}<span class="research-actions"><button :disabled="busy" @click="load">Загрузить сохранённое</button><button v-if="dirty" :disabled="busy || saving" @click="saveDraft">Сохранить ответы</button><button v-if="pendingTiming" :disabled="busy" @click="retryTiming">Повторить сохранение замера</button></span></p>
     <p v-if="busy" role="status">Выполняем запрос…</p>
     <template v-if="run">
@@ -222,8 +222,8 @@ onBeforeUnmount(() => { clearInterval(ticker); clearTimeout(draftTimer); });
         <label class="research-check"><input v-model="skip" type="checkbox" :disabled="busy">Пропустить разметку</label>
         <button class="research-primary" :disabled="busy">Сохранить и завершить исследование</button>
       </form>
-      <section v-if="['completed','aborted'].includes(run.stage)" class="research-card"><h2>{{ run.stage === 'completed' ? 'Спасибо за участие!' : 'Проверка прервана' }}</h2><p>Сохранённые этапы доступны команде исследования.</p><p>Ручная проверка: {{ duration(run.manual_duration_ms) }}. ToxiCheck: {{ duration(run.app_duration_ms) }}.</p><RouterLink to="/research">Проверить следующий продукт →</RouterLink></section>
+      <section v-if="['completed','aborted'].includes(run.stage)" class="research-card"><h2>{{ run.stage === 'completed' ? 'Спасибо за участие!' : 'Проверка прервана' }}</h2><p>Сохранённые этапы доступны команде исследования.</p><p>Ручная проверка: {{ duration(run.manual_duration_ms) }}. ToxiCheck: {{ duration(run.app_duration_ms) }}.</p><RouterLink :to="{ name: 'research' }">Проверить следующий продукт →</RouterLink></section>
       <details v-else class="research-card"><summary>Завершить участие досрочно</summary><p>Уже сохранённые данные останутся в исследовании. Проверка будет отмечена как прерванная.</p><button class="research-danger" :disabled="busy" @click="stage('abort')">Прервать эту проверку</button></details>
     </template>
-  </main>
+  </section>
 </template>

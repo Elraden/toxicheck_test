@@ -33,7 +33,7 @@ async function start() {
 onMounted(load);
 </script>
 <template>
-  <main class="research-shell">
+  <section class="research-shell">
     <header class="research-heading"><RouterLink to="/app/home">← На главную</RouterLink><span class="research-tag">ToxiCheck · исследования</span></header>
     <h1>Помогите проверить ToxiCheck</h1>
     <p>Выберите исследование. Ответы, время проверки и фотографии помогут команде оценить качество приложения.</p>
@@ -59,5 +59,5 @@ onMounted(load);
         <span><strong>{{ run.title }}</strong><small>{{ run.study_title }}</small></span><span>{{ stageNames[run.stage] }}</span>
       </RouterLink>
     </section>
-  </main>
+  </section>
 </template>

@@ -1,5 +1,4 @@
-body.research-mode { max-width: none; background: #f5f8f6; }
-.research-shell { max-width: 1000px; margin: 0 auto; padding: 24px 18px 60px; color: #172b24; line-height: 1.55; }
+.research-shell { width: 100%; min-width: 0; padding: 24px 18px 24px; color: #172b24; line-height: 1.55; overflow-wrap: anywhere; }
 .research-shell h1 { font-size: clamp(24px,4vw,34px); line-height: 1.2; margin: 22px 0 14px; }
 .research-shell h2 { font-size: 20px; margin: 0 0 12px; }
 .research-shell h3 { font-size: 16px; margin: 14px 0 8px; }
@@ -28,6 +27,7 @@ body.research-mode { max-width: none; background: #f5f8f6; }
 .research-list-row { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid #e7ede9; text-decoration: none; overflow-wrap: anywhere; }
 .research-list-row small { display: block; color: #607267; }
 .research-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+.research-actions > * { min-width: 0; max-width: 100%; }
 .research-answer { margin: 12px 0; padding: 12px; border: 1px solid #d9e5de; border-radius: 10px; }
 .research-answer legend { font-weight: 700; padding: 0 6px; }
 .research-answer label { display: inline-flex; align-items: center; margin: 6px 14px 6px 0; }
