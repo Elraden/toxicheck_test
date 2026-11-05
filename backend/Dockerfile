@@ -20,6 +20,10 @@ WORKDIR /app/backend
 RUN pip install --no-cache-dir -e ".[ocr]"
 RUN python -c "from app.main import app; assert app is not None"
 
+# Keep the deploy seed in the image; no live scraping or database access at build time.
+COPY toxicheck_catalog.json /app/toxicheck_catalog.json
+RUN python -m app.db.bootstrap_catalog
+
 EXPOSE 10000
 
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]

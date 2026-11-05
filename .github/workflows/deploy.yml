@@ -18,6 +18,19 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    services:
+      bootstrap-postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: bootstrap_test
+          POSTGRES_DB: postgres
+          # Disposable CI database, loopback only; no production credentials.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:55440:5432
+        options: >-
+          --health-cmd "pg_isready -U bootstrap_test -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -32,6 +45,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Backend tests
         working-directory: backend
+        env:
+          TOXICHECK_BOOTSTRAP_TEST: '1'
         run: |
           python -m pip install -e '.[ocr,scraping]'
           python -m unittest discover -s tests -p 'test_*.py'

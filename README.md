@@ -112,13 +112,11 @@ python -m venv .venv
 ```sh
 python -m pip install -e ".[ocr]"
 python -m app.db.initialize --expected-host localhost
-python -m app.db.initialize --expected-host localhost --apply
-python -m app.db.import_catalog ../toxicheck_catalog.json --validate-only
-python -m app.db.import_catalog ../toxicheck_catalog.json
+python -m app.db.initialize --expected-host localhost --apply --bootstrap-catalog
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-`initialize` без `--apply` проверяет подключение; с флагом применяет схемы в одной транзакции. Значение `--expected-host` должно совпадать с хостом в URL. Импортер использует только `TOXICHECK_CATALOG_DATABASE_URL`; вариант `--prompt-url` позволяет ввести URL скрыто.
+`initialize` без `--apply` проверяет подключение; с `--apply` создаёт только схемы. Флаг `--bootstrap-catalog` добавляет первичную загрузку `toxicheck_catalog.json` в той же транзакции. Уже заполненный активный каталог сохраняется без изменений. Значение `--expected-host` должно совпадать с хостом в URL. Инициализатор использует `TOXICHECK_CATALOG_DATABASE_URL`, а если она не задана — `DATABASE_URL`. Отдельный импортер полного снимка использует только `TOXICHECK_CATALOG_DATABASE_URL`; вариант `--prompt-url` позволяет ввести URL скрыто.
 
 API доступен по `http://localhost:8000/api`, документация методов — по `http://localhost:8000/docs`. `/api/health` проверяет работу API, `/api/health/db` — подключение и таблицы каталога. Для анализа в каталоге должны быть данные.
 
@@ -128,7 +126,13 @@ API доступен по `http://localhost:8000/api`, документация 
 docker compose -f docker-compose.backend.yml up --build -d
 ```
 
-Образ содержит Tesseract и Python-зависимости. Новый том PostgreSQL получает схемы автоматически, но требует импорта каталога. Для существующего тома миграции выполняются явно. БД и фотографии используют постоянные тома.
+Образ содержит Tesseract, Python-зависимости и проверенный снимок каталога. Новый локальный том PostgreSQL получает схемы автоматически. Для загрузки данных и применения миграций выполните:
+
+```sh
+docker compose -f docker-compose.backend.yml run --rm --no-deps api python -m app.db.initialize --expected-host postgres --apply --bootstrap-catalog
+```
+
+БД и фотографии используют постоянные тома. В production этот шаг автоматически выполняет скрипт деплоя перед запуском API.
 
 ### Фронтенд
 
@@ -240,6 +244,8 @@ printf 'SITE_ADDRESS=toxicheck.195.209.209.111.sslip.io\nPOSTGRES_PASSWORD=%s\n'
 
 ### 2. Перенос локальной БД и фотографий
 
+Перенос нужен, если вы хотите сохранить локальные профили, исследования и правки каталога. Для совершенно новой установки без пользовательских данных его можно пропустить: справочник загрузится из образа автоматически. Уже работающую БД при обновлении не восстанавливайте поверх текущей.
+
 На **локальном компьютере**, PowerShell из корня проекта, пока локальные контейнеры запущены:
 
 ```powershell
@@ -256,6 +262,7 @@ scp -i "$env:USERPROFILE\.ssh\toxicheck-server-01.pem" .deploy.local/database.du
 На **сервере** соберите первый релиз:
 
 ```sh
+set -euo pipefail
 cd /opt/toxicheck/source
 export RELEASE_SHA=$(git rev-parse HEAD)
 release=/opt/toxicheck/releases/$RELEASE_SHA
@@ -265,10 +272,20 @@ docker build -f backend/Dockerfile -t "toxicheck-api:$RELEASE_SHA" .
 docker build -t "toxicheck-web:$RELEASE_SHA" frontend
 dc() { docker compose --env-file /opt/toxicheck/.env -f "$release/compose.yml" "$@"; }
 dc up -d --wait postgres
+```
+
+Только для переноса локальных данных **в пустую БД**, в том же терминале:
+
+```sh
 dc cp /opt/toxicheck/database.dump postgres:/tmp/toxicheck.dump
 dc exec -T postgres pg_restore -U toxicheck -d toxicheck --no-owner --no-acl --exit-on-error --single-transaction /tmp/toxicheck.dump
 docker volume create toxicheck_research_photos
 docker run --rm --network none --entrypoint tar -v toxicheck_research_photos:/photos -v /opt/toxicheck:/backup:ro "toxicheck-api:$RELEASE_SHA" -xzf /backup/research-photos.tar.gz -C /photos --no-same-owner
+```
+
+Запустите релиз независимо от того, переносили ли данные:
+
+```sh
 bash "$release/deploy.sh" "$RELEASE_SHA"
 ```
 
@@ -306,7 +323,7 @@ awk '{print "195.209.209.111 " $1 " " $2}' /etc/ssh/ssh_host_ed25519_key.pub
 
 ### Обновления, резервные копии и диагностика
 
-Перед обновлением создаётся копия PostgreSQL и фотографий в `/opt/toxicheck/backups`, затем транзакционно применяются схемы и проверяется готовность API/сайта. Если приложение не запустилось, скрипт пытается вернуть образы предыдущего релиза. **БД автоматически не откатывается**: изменения схемы должны сохранять совместимость с предыдущим приложением. Обновление может вызвать краткий перерыв в работе.
+Перед обновлением создаётся копия PostgreSQL и фотографий в `/opt/toxicheck/backups`, затем транзакционно применяются схемы и первичная загрузка справочника, после чего проверяется готовность API/сайта. Если приложение не запустилось, скрипт пытается вернуть образы предыдущего релиза. **БД автоматически не откатывается** после успешного завершения миграции: изменения схемы должны сохранять совместимость с предыдущим приложением. Обновление может вызвать краткий перерыв в работе.
 
 На сервере для управления текущим релизом:
 
@@ -330,6 +347,31 @@ bash /opt/toxicheck/current/backup.sh
 
 Справочные материалы: [GitHub Actions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow), [Caddy: маршрутизация SPA и API](https://caddyserver.com/docs/caddyfile/patterns), [Docker Compose: ожидание готовности](https://docs.docker.com/reference/cli/docker/compose/up/).
 
+### Первичная загрузка справочника и диагностика 503
+
+`SELECT 1` подтверждает соединение, а `catalog.schema_version = 2` — версию структуры таблиц. `/api/health/db` дополнительно требует активные ингредиенты. Поэтому пустые таблицы после обычного `initialize --apply` не означают готовность приложения.
+
+В API-образ включён `toxicheck_catalog.json`. Сборка проверяет версию, ссылки, уникальность идентификаторов и полноту снимка без подключения к БД. Проверку файла можно выполнить отдельно: `python -m app.db.bootstrap_catalog`.
+
+При деплое `initialize --apply --bootstrap-catalog`:
+
+- Проверяет целевой хост, снимок и совместимость существующей схемы.
+- Под общей блокировкой выполняет миграции и загрузку в одной транзакции; параллельные запуски не создают дубликаты.
+- Загружает только полностью пустые таблицы каталога, сохраняет исходные UUID и записывает SHA-256 снимка в `catalog.import_runs`.
+- При наличии активного каталога оставляет его записи и журнал импорта без изменений. Пользователи, исключения, исследования, обучающие данные и файлы не сбрасываются.
+- При ошибке импорта откатывает всю транзакцию. Несовместимая версия, заполненный каталог без версии или частичные данные без активных ингредиентов требуют ручной проверки; автоматического удаления или перезаписи нет.
+
+Первичная загрузка не синхронизирует уже существующий каталог с каждым релизом. Обновления справочника выполняются отдельным проверенным импортом или точечным дополнением, с резервной копией.
+
+При первом деплое с пустой БД достаточно запустить workflow **из обновлённой ветки `main`**: скрипт загрузит справочник до проверки готовности. Повторный запуск старого workflow использует старый образ без снимка. Для ручного запуска в контексте нового релиза с настроенной функцией `dc`:
+
+```sh
+dc run --rm --no-deps api python -m app.db.initialize --expected-host postgres --apply --bootstrap-catalog
+dc up -d --wait --wait-timeout 240 api web
+```
+
+Проверки готовности остаются включёнными. Не удаляйте Docker volumes для устранения ошибки 503. В логах инициализации доступны результат `loaded`/`preserved`, количество записей и SHA-256 нового импорта, без реквизитов подключения.
+
 ## Проверки
 
 Бэкенд, из `backend/`:
@@ -345,4 +387,6 @@ node --test tests/*.test.mjs
 npm run build
 ```
 
-Тесты с PostgreSQL включаются явно. Исследовательский интеграционный тест использует временную БД на `127.0.0.1:55439` с пользователем `research_test` и включается через `TOXICHECK_RESEARCH_LOCAL_TEST=1`. Он проверяет сессии, этапы, доступ, файлы и экспорт; ответ OCR подменяется контролируемым примером и не измеряет качество модели.
+Тесты с PostgreSQL включаются явно. В GitHub Actions автоматически запускаются тесты первичной загрузки (`TOXICHECK_BOOTSTRAP_TEST=1`) на отдельном PostgreSQL 17: `127.0.0.1:55440`, пользователь `bootstrap_test`. Каждый тест создаёт собственную временную БД; production-переменные подключения не используются. Проверяются переход 503 → 200, повторный и параллельный запуск, сохранение пользовательских данных и правок каталога, откат при сбое, неверный снимок и несовместимая версия.
+
+Исследовательский интеграционный тест использует временную БД на `127.0.0.1:55439` с пользователем `research_test` и включается через `TOXICHECK_RESEARCH_LOCAL_TEST=1`. Он проверяет сессии, этапы, доступ, файлы и экспорт; ответ OCR подменяется контролируемым примером и не измеряет качество модели.

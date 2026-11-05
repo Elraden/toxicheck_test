@@ -1,5 +1,6 @@
-# Only backend code, dependency manifest and SQL are needed in the image.
+# Backend, SQL and the validated bootstrap catalog; never local credentials or dumps.
 **
+!toxicheck_catalog.json
 !backend/
 !backend/Dockerfile
 !backend/pyproject.toml

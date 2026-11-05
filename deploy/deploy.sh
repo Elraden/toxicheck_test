@@ -29,7 +29,7 @@ docker image inspect "toxicheck-api:$revision" "toxicheck-web:$revision" >/dev/n
 previous=$(readlink -f "$root/current" || true)
 "${compose[@]}" up -d --wait --wait-timeout 120 postgres
 bash "$release/backup.sh" "$release"
-"${compose[@]}" run --rm --no-deps api python -m app.db.initialize --expected-host postgres --apply
+"${compose[@]}" run --rm --no-deps api python -m app.db.initialize --expected-host postgres --apply --bootstrap-catalog
 
 rollback() {
   trap - ERR
