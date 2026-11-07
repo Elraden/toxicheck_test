@@ -1,79 +1,99 @@
 name: toxicheck
 
 x-logging: &logging
-  driver: json-file
-  options:
-    max-size: "10m"
-    max-file: "3"
+    driver: json-file
+    options:
+        max-size: "10m"
+        max-file: "3"
 
 services:
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: toxicheck
-      POSTGRES_USER: toxicheck
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in /opt/toxicheck/.env}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: [CMD-SHELL, "pg_isready -U toxicheck -d toxicheck"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    logging: *logging
+    postgres:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        ports:
+            - "127.0.0.1:15432:5432"
+        environment:
+            POSTGRES_DB: toxicheck
+            POSTGRES_USER: toxicheck
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in /opt/toxicheck/.env}
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: [CMD-SHELL, "pg_isready -U toxicheck -d toxicheck"]
+            interval: 5s
+            timeout: 5s
+            retries: 20
+        logging: *logging
 
-  api:
-    image: toxicheck-api:${RELEASE_SHA:?Set RELEASE_SHA}
-    pull_policy: never
-    restart: unless-stopped
-    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --proxy-headers, --forwarded-allow-ips, "*"]
-    environment:
-      APP_ENV: production
-      DATABASE_URL: postgresql+asyncpg://toxicheck:${POSTGRES_PASSWORD}@postgres:5432/toxicheck
-      TOXICHECK_CATALOG_DATABASE_URL: postgresql+asyncpg://toxicheck:${POSTGRES_PASSWORD}@postgres:5432/toxicheck
-      FRONTEND_ORIGINS: https://${SITE_ADDRESS:?Set SITE_ADDRESS}
-      OCR_MODE: embedded
-      RESEARCH_STORAGE_DIR: /data/research-photos
-      RESEARCH_APP_VERSION: ${RELEASE_SHA}
-      RESEARCH_PIPELINE_VERSION: embedded-adaptive-v1
-    volumes:
-      - research_photos:/data/research-photos
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/db', timeout=10)"]
-      interval: 15s
-      timeout: 12s
-      retries: 10
-      start_period: 30s
-    logging: *logging
+    api:
+        image: toxicheck-api:${RELEASE_SHA:?Set RELEASE_SHA}
+        pull_policy: never
+        restart: unless-stopped
+        command:
+            [
+                uvicorn,
+                app.main:app,
+                --host,
+                0.0.0.0,
+                --port,
+                "8000",
+                --proxy-headers,
+                --forwarded-allow-ips,
+                "*",
+            ]
+        environment:
+            APP_ENV: production
+            DATABASE_URL: postgresql+asyncpg://toxicheck:${POSTGRES_PASSWORD}@postgres:5432/toxicheck
+            TOXICHECK_CATALOG_DATABASE_URL: postgresql+asyncpg://toxicheck:${POSTGRES_PASSWORD}@postgres:5432/toxicheck
+            FRONTEND_ORIGINS: https://${SITE_ADDRESS:?Set SITE_ADDRESS}
+            OCR_MODE: embedded
+            RESEARCH_STORAGE_DIR: /data/research-photos
+            RESEARCH_APP_VERSION: ${RELEASE_SHA}
+            RESEARCH_PIPELINE_VERSION: embedded-adaptive-v1
+        volumes:
+            - research_photos:/data/research-photos
+        depends_on:
+            postgres:
+                condition: service_healthy
+        healthcheck:
+            test:
+                [
+                    CMD,
+                    python,
+                    -c,
+                    "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/db', timeout=10)",
+                ]
+            interval: 15s
+            timeout: 12s
+            retries: 10
+            start_period: 30s
+        logging: *logging
 
-  web:
-    image: toxicheck-web:${RELEASE_SHA}
-    pull_policy: never
-    restart: unless-stopped
-    environment:
-      SITE_ADDRESS: ${SITE_ADDRESS}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    logging: *logging
+    web:
+        image: toxicheck-web:${RELEASE_SHA}
+        pull_policy: never
+        restart: unless-stopped
+        environment:
+            SITE_ADDRESS: ${SITE_ADDRESS}
+        ports:
+            - "80:80"
+            - "443:443"
+        volumes:
+            - caddy_data:/data
+            - caddy_config:/config
+        depends_on:
+            api:
+                condition: service_healthy
+        healthcheck:
+            test:
+                [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+            interval: 15s
+            timeout: 5s
+            retries: 5
+        logging: *logging
 
 volumes:
-  postgres_data:
-  research_photos:
-  caddy_data:
-  caddy_config:
+    postgres_data:
+    research_photos:
+    caddy_data:
+    caddy_config:
