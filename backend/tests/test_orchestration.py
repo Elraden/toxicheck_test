@@ -47,9 +47,30 @@ class LabRulesTests(unittest.TestCase):
         with patch('app.services.ocr_service.OcrService._recognize_embedded_sync',return_value=OcrResult(status='needs_retake')):
             result=worker._recognize_embedded_sync('x','lab')
         self.assertEqual(result.status,'needs_retake')
-        self.assertEqual(worker.measurements['measurement_quality'],'shared_process_estimate')
+        self.assertEqual(worker.measurements['measurement_quality'],'child_not_observed')
+        self.assertIsNone(worker.measurements['tesseract_child_cpu_time_ms'])
+        self.assertIsNone(worker.measurements['tesseract_child_rss_peak_bytes'])
+        self.assertGreaterEqual(worker.measurements['ocr_python_thread_cpu_ms'],0)
         self.assertGreaterEqual(worker.measurements['ocr_worker_ms'],0)
         self.assertNotIn('cpu_time_ms',worker.measurements)
+
+    def test_resource_aggregate_uses_reviewed_full_frames_not_ocr_recall(self):
+        from app.services.orchestration import aggregate
+        def row(complete,ocr_quality):
+            return dict(environment={},protocol_version='live-v3.2',mode='video_parallel',config={},
+                status='finished',valid_result=True,excluded_from_analysis=False,
+                measured_summary=dict(end_to_end_ms=5000,shared_process_cpu_delta_ms=50,
+                    shared_process_rss_peak_bytes=1000000,ocr_calls=1,api_calls=1,
+                    ocr_cpu_time_ms=90,total_transfer_bytes=4000,ocr_image_bytes=2500,
+                    frame_complete=complete,quality_reviewed=True,quality_success=ocr_quality))
+        group=aggregate([row(False,True),row(True,False)])[0]
+        self.assertEqual(group['complete_frames'],1)
+        self.assertEqual(group['frame_completeness_rate'],0.5)
+        self.assertEqual(group['ocr_cpu_time_ms'],180)
+        self.assertEqual(group['bytes_per_complete_scan'],8000)
+        self.assertEqual(group['ocr_cpu_per_complete_scan_ms'],180)
+        unreviewed=aggregate([row(None,True)])[0]
+        self.assertIsNone(unreviewed['bytes_per_complete_scan'])
 
     def test_measurement_survives_worker_error(self):
         worker=MeasuredOCR()
