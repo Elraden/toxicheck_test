@@ -179,11 +179,11 @@ function stopCamera(){stopBarcode();stream?.getTracks().forEach(t=>t.stop());str
 function cancelTasks(kind?:string){
   for(const [id,running] of tasks)if(running&&(!kind||taskKinds.get(id)===kind))void write('/runs/'+runId.value+'/tasks/'+id+'/cancel',{}).catch(e=>{saveError.value=message(e);});
 }
-async function task(kind:'lookup'|'ocr',value:string):Promise<Task>{
+async function task(kind:'lookup'|'ocr',value:string,captureMetrics:Record<string,unknown>={}):Promise<Task>{
   const id=crypto.randomUUID(),current=runId.value,start=performance.now();
   tasks.set(id,true);taskKinds.set(id,kind);
   let row:Task;
-  const payload={id,...(kind==='ocr'?{image_base64:value}:{barcode:value})};
+  const payload={id,...(kind==='ocr'?{image_base64:value,capture_metrics:captureMetrics}:{barcode:value})};
   try{
     row=await write<Task>('/runs/'+current+'/'+kind,payload);
     // Durable task polling is separate from HTTP acknowledgement of the submission.
@@ -218,9 +218,10 @@ async function start(){
   try{
     validateConfig(config.value);
     if(!selectedCase.value)throw new Error('Выберите или добавьте товар.');
+    if(!runLayout.value)throw new Error('Перед началом укажите расположение штрихкода и состава.');
     if(outbox.length||pendingFinish)throw new Error('Сначала синхронизируйте предыдущий запуск.');
     if(!navigator.mediaDevices?.getUserMedia)throw new Error('Нужны HTTPS и браузер с доступом к камере.');
-    runId.value=crypto.randomUUID();trace.value=[];tasks.clear();frameState={previous:null,lastSent:null};discardPhoto();tab.value='camera';
+    runId.value=crypto.randomUUID();trace.value=[];tasks.clear();frameState={previous:null,lastSent:null};resetPool();discardPhoto();tab.value='camera';
     // Request permission in the user-gesture flow, but persist run even if permission fails.
     const cameraPromise=navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}})
       .then(s=>{acquired=s;return {stream:s,error:null};}).catch(e=>({stream:null,error:e}));
@@ -228,10 +229,10 @@ async function start(){
       await write('/runs',{id:runId.value,case_id:selectedCase.value,mode:mode.value,config:config.value,
         environment:{user_agent:navigator.userAgent,device_label:device.value,started_at_utc:new Date().toISOString(),zxing_browser_version:'0.2.1',
           initial_orientation:orientation.value,initial_layout:cameraLayout.value,initial_frame_rotation:angle.value,
-          label_layout:cases.value.find(c=>c.id===selectedCase.value)?.label_layout}});
+          label_layout:runLayout.value,layout_confirmed_before_run:true,capture_policy:'best_of_three_v1'}});
     }catch(e){void cameraPromise.then(r=>r.stream?.getTracks().forEach(t=>t.stop()));throw e;}
     engine=new Orchestrator(mode.value,config.value,{
-      clock:realClock,emit,lookup:code=>task('lookup',code),ocr:image=>task('ocr',image),cancel:()=>cancelTasks(),cancelLookup:()=>cancelTasks('lookup'),
+      clock:realClock,emit,lookup:code=>task('lookup',code),ocr:(image,metrics)=>task('ocr',image,metrics),cancel:()=>cancelTasks(),cancelLookup:()=>cancelTasks('lookup'),
       stopBarcode,changed:()=>{version.value++;},finished:(v,t)=>{void finished(v,t);}
     },started);
     active.value=true;engine.start();stash();
@@ -253,11 +254,22 @@ async function start(){
     });
     if(engine.done||engine.barcodeState!=='running')stopBarcode();
     frameTimer=setInterval(()=>{
-      if(!engine||engine.done||!isVideo.value||!engine.canCapture()||!video.value)return;
+      if(!engine||engine.done||!isVideo.value||!video.value){resetPool();return;}
+      if(!engine.canCapture()){resetPool();return;}
+      if(!poolStarted)poolStarted=performance.now();
       engine.event('frame_considered');
-      const frame=capture(video.value,frameState,true,effectiveRotation.value);
-      if(frame&&engine.submit(frame.image)){frameState.lastSent=frame.fingerprint;}
-    },config.value.frameMinIntervalMs);
+      const frame=capture(video.value,frameState,true,effectiveRotation.value,observeFrame);
+      if(frame)framePool.push(frame);
+      if(framePool.length>=3||performance.now()-poolStarted>=750){
+        if(framePool.length){
+          const best=framePool.reduce((a,b)=>frameScore(b.quality)>frameScore(a.quality)?b:a);
+          const metrics={...best.quality,candidates_considered:framePool.length,
+            selection_score:frameScore(best.quality),selection_policy:'best_of_three_v1'};
+          if(engine.submit(best.image,false,metrics))frameState.lastSent=best.fingerprint;
+        }
+        resetPool();
+      }
+    },250);
   }catch(e){
     error.value=message(e);
     if(engine&&!engine.done)engine.finish('technical_failure');
@@ -267,14 +279,16 @@ async function start(){
 function takePhoto(){
   if(!engine||!video.value)return;
   engine.selectPhoto();
-  const frame=capture(video.value,frameState,false,effectiveRotation.value);
-  if(frame){originalPhoto=frame.original;preview.value=frame.image;}else error.value='Дождитесь изображения камеры и попробуйте снова.';
+  const frame=capture(video.value,frameState,false,effectiveRotation.value,observeFrame);
+  if(frame){originalPhoto=frame.original;preview.value=frame.image;
+    photoMeta={...frame.quality,candidates_considered:1,selection_policy:'manual_photo'};
+  }else error.value='Дождитесь изображения камеры и попробуйте снова.';
 }
-function confirmPhoto(){if(preview.value&&engine?.submit(preview.value,true))discardPhoto();}
+function confirmPhoto(){if(preview.value&&engine?.submit(preview.value,true,photoMeta))discardPhoto();}
 async function addCase(){
   error.value='';try{
-    const item=await write<Case>('/cases',{product_label:product.value,expected_barcode:expected.value||null,label_layout:layout.value,notes:notes.value});
-    cases.value.unshift(item);selectedCase.value=item.id;
+    const item=await write<Case>('/cases',{product_label:product.value,expected_barcode:expected.value||null,label_layout:layout.value,notes:notes.value,reference_ingredients:parseReference(newReference.value)});
+    cases.value.unshift(item);selectedCase.value=item.id;referenceDraft.value=item.reference_ingredients.join('\n');newReference.value='';
   }catch(e){error.value=message(e);}
 }
 function query(){
@@ -295,7 +309,13 @@ async function loadHistory():Promise<void>{
   summaries.value=summary.groups;nTotal.value=summary.n_total;nExcluded.value=summary.n_excluded;
 }
 async function safely(fn:()=>Promise<unknown>){try{error.value='';await fn();}catch(e){error.value=message(e);}}
-async function openRun(id:string){detail.value=await read<Run>('/runs/'+id);tab.value='history';await nextTick();document.getElementById('run-detail')?.scrollIntoView({block:'start',behavior:'smooth'});}
+async function openRun(id:string){
+  detail.value=await read<Run>('/runs/'+id);
+  qualityDrafts.value=Object.fromEntries((detail.value.tasks??[]).filter(t=>t.kind==='ocr').map(t=>[
+    t.id,{matched_indices:[...(t.quality_review?.matched_indices??[])],
+      frame_complete:t.quality_review?.frame_complete??null,note:t.quality_review?.note??''}
+  ]));
+  tab.value='history';await nextTick();document.getElementById('run-detail')?.scrollIntoView({block:'start',behavior:'smooth'});}
 async function exportData(id?:string,excluded=false){
   const q=query();q.set('include_excluded',String(id?excluded:includeExcluded.value));
   const data=await read(id?'/runs/'+id+'/export.json?'+q:'/export.json?'+q);
