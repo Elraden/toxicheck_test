@@ -11,7 +11,7 @@ export interface Ports {
   clock:Clock;
   emit:(event:Event)=>void;
   lookup:(code:string)=>Promise<Task>;
-  ocr:(image:string)=>Promise<Task>;
+  ocr:(image:string,metrics?:Record<string,unknown>)=>Promise<Task>;
   cancel:()=>void;
   stopBarcode:()=>void;
   cancelLookup?:()=>void;
@@ -111,12 +111,12 @@ export class Orchestrator {
     return !this.done && this.camera && this.ocrAllowed && this.ocrState!=='running' &&
       this.ocrCalls<this.config.maxOcrRequests && this.ports.clock.now()-this.lastRequest>=this.config.frameMinIntervalMs;
   }
-  submit(image:string,confirmed=false) {
+  submit(image:string,confirmed=false,metrics:Record<string,unknown>={}) {
     if(!this.canCapture() || (this.mode.startsWith('photo')&&(!confirmed||!this.photoSelected)))return false;
-    this.event(this.mode.startsWith('photo')?'photo_ready':'frame_selected');
+    this.event(this.mode.startsWith('photo')?'photo_ready':'frame_selected',{attempt:this.ocrCalls+1,...metrics});
     this.ocrCalls++;this.lastRequest=this.ports.clock.now();this.ocrState='running';
     this.event('ocr_request_started',{attempt:this.ocrCalls});
-    void this.ports.ocr(image).then(task=>{
+    void this.ports.ocr(image,metrics).then(task=>{
       if(this.done)return;
       this.ocrState=task.sufficient?'sufficient':'insufficient';
       this.event('ocr_http_finished',{task_id:task.id,status:task.status,metrics:task.metrics});
