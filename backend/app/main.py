@@ -1,4 +1,7 @@
 import logging
+import asyncio
+import os
+from contextlib import asynccontextmanager
 import asyncpg
 
 from fastapi import FastAPI
@@ -16,7 +19,20 @@ def create_app() -> FastAPI:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
+    @asynccontextmanager
+    async def lifespan(app):
+        from app.services.orchestration import recover, live_tasks
+        try:
+            if os.environ.get('ORCHESTRATION_RECOVER_ON_STARTUP') == 'true':
+                await recover()
+        except Exception as exc:
+            logging.getLogger(__name__).warning('Experiment recovery unavailable: %s', type(exc).__name__)
+        yield
+        if live_tasks:
+            await asyncio.gather(*list(live_tasks), return_exceptions=True)
+
     app = FastAPI(
+        lifespan=lifespan,
         title=settings.app_name,
         version="0.1.0",
     )

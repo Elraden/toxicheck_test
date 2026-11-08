@@ -26,3 +26,6 @@ api_router.include_router(admin_router, prefix="/admin", tags=["admin"])
 api_router.include_router(research_router, prefix="/research", tags=["research"])
 api_router.include_router(research_admin_router, prefix="/admin/research", tags=["research-admin"])
 api_router.include_router(billing_router, prefix="/billing", tags=["billing"])
+
+from app.api.routes.orchestration import router as orchestration_router
+api_router.include_router(orchestration_router, prefix='/admin/orchestration', tags=['orchestration'])
