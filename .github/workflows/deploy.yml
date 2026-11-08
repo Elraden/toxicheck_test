@@ -56,6 +56,8 @@ jobs:
           npm ci
           node --test tests/*.test.mjs
           npm run build
+          npx playwright install --with-deps chromium
+          npm run test:browser
       - name: Deployment configuration
         env:
           RELEASE_SHA: ${{ github.sha }}

@@ -76,3 +76,7 @@ __screenshots__/
 /backend/data/proe_cache/
 # Private research photographs; never commit participant data.
 **/.research-photos/
+
+# Browser test artifacts
+/frontend/test-results/
+/frontend/playwright-report/

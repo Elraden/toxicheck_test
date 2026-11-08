@@ -22,6 +22,21 @@ class LabRulesTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             Event(seq=0,event_name='run_started',relative_ms=float('nan'))
 
+    def test_aggregates_ignore_excluded_metrics_even_in_full_export(self):
+        from app.services.orchestration import aggregate
+        def row(ms,cpu,calls,excluded=False):
+            return dict(environment={},protocol_version='test',mode='video_parallel',config={},
+                status='finished',valid_result=True,excluded_from_analysis=excluded,
+                measured_summary=dict(end_to_end_ms=ms,shared_process_cpu_delta_ms=cpu,
+                    shared_process_rss_peak_bytes=cpu*100,ocr_calls=calls,api_calls=calls))
+        group=aggregate([row(100,10,1),row(200,20,2),row(99999,99999,99,True)])[0]
+        self.assertEqual((group['n'],group['success'],group['p50'],group['p95']),(2,2,100,200))
+        self.assertEqual((group['ocr_calls'],group['api_calls']),(3,3))
+        self.assertEqual(group['shared_process_cpu_per_run_ms'],15)
+        self.assertEqual(group['shared_process_cpu_per_success_ms'],15)
+        self.assertEqual(group['shared_process_rss_peak_bytes'],2000)
+        self.assertEqual(aggregate([row(1,1,1,True)]),[])
+
     def test_sufficient_uses_actual_composition_gate(self):
         for status,text in [('success',''),('needs_retake','сахар, соль'),('error','сахар, соль'),('success',None)]:
             self.assertFalse(sufficient(status,text))
@@ -55,7 +70,7 @@ class LabAuthTests(unittest.IsolatedAsyncioTestCase):
         id=str(uuid4())
         paths=[('GET','/cases'),('POST','/cases'),('GET','/runs'),('POST','/runs'),
                ('GET',f'/runs/{id}'),('POST',f'/runs/{id}/events'),('POST',f'/runs/{id}/finish'),
-               ('POST',f'/runs/{id}/ocr'),('POST',f'/runs/{id}/lookup'),('GET','/export.json')]
+               ('POST',f'/runs/{id}/ocr'),('POST',f'/runs/{id}/lookup'),('GET','/export.json'),('PUT',f'/runs/{id}/exclusion')]
         with patch('app.services.identity.IdentityService.read',new=AsyncMock(return_value=None)):
             for method,path in paths:
                 response=await self.client.request(method,'/api/admin/orchestration'+path,json={})
@@ -64,6 +79,8 @@ class LabAuthTests(unittest.IsolatedAsyncioTestCase):
     async def test_admin_without_csrf_cannot_write(self):
         self.app.dependency_overrides[require_admin]=lambda:SimpleNamespace(user=SimpleNamespace(id=uuid4()),csrf='secret')
         response=await self.client.post('/api/admin/orchestration/cases',json={})
+        self.assertEqual(response.status_code,403)
+        response=await self.client.put('/api/admin/orchestration/runs/'+str(uuid4())+'/exclusion',json={'excluded':True,'reason':'bad_setup'})
         self.assertEqual(response.status_code,403)
 
 import os
@@ -179,7 +196,8 @@ class LabDatabaseTests(unittest.IsolatedAsyncioTestCase):
     async def test_other_admin_cannot_read_write_or_export_this_run(self):
         self.principal=SimpleNamespace(user=SimpleNamespace(id=uuid4()),csrf='other')
         for method,path,payload in [('GET',f'/runs/{self.id}',None),('POST',f'/runs/{self.id}/events',{'events':[]}),
-                                    ('GET',f'/runs/{self.id}/export.json',None)]:
+                                    ('GET',f'/runs/{self.id}/export.json',None),
+                                    ('PUT',f'/runs/{self.id}/exclusion',{'excluded':True,'reason':'bad_setup'})]:
             r=await self.client.request(method,path,json=payload)
             self.assertEqual(r.status_code,404,r.text)
 
@@ -232,3 +250,77 @@ class LabDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('ocr_worker_finished',names)
         self.assertIsNone(data['tasks'][0]['worker_finished_at'])
         self.assertIsNone(data['measured_summary']['ocr_worker_ms'])
+
+
+    async def test_exclusion_restore_audit_and_exports_preserve_results(self):
+        ids=[self.id]
+        for i in range(3):
+            if i:
+                rid=str(uuid4())
+                response=await self.client.post('/runs',json={'id':rid,'case_id':self.case,'mode':'video_adaptive'})
+                self.assertEqual(response.status_code,200,response.text);ids.append(rid)
+            response=await self.client.post(f'/runs/{ids[-1]}/finish',json={'outcome':'timeout'})
+            self.assertEqual(response.status_code,200,response.text)
+        endpoint=f'/runs/{self.id}'
+        before=(await self.client.get(endpoint)).json()
+        payload={'excluded':True,'reason':'operator_mistake','comment':'Неверный товар в кадре'}
+        responses=await asyncio.gather(*(self.client.put(endpoint+'/exclusion',json=payload) for _ in range(2)))
+        for r in responses:self.assertEqual(r.status_code,200,r.text)
+        self.assertEqual(responses[0].json()['excluded_at'],responses[1].json()['excluded_at'])
+        data=(await self.client.get(endpoint)).json()
+        self.assertEqual(len(data['exclusion_audit']),1)
+        for field in ['outcome','valid_result','finished_at','summary','measured_summary','events','tasks']:
+            self.assertEqual(data[field],before[field],field)
+        summary=(await self.client.get('/summary')).json()
+        self.assertEqual((summary['n_total'],summary['n_excluded']),(3,1))
+        self.assertEqual(sum(g['n'] for g in summary['groups']),2)
+        self.assertEqual((await self.client.get('/runs')).json()['total'],2)
+        self.assertEqual((await self.client.get('/runs?exclusion_status=excluded')).json()['total'],1)
+        self.assertEqual((await self.client.get('/runs?exclusion_status=all')).json()['total'],3)
+        self.assertEqual(len((await self.client.get('/export.json')).json()['runs']),2)
+        full=(await self.client.get('/export.json?include_excluded=true')).json()
+        self.assertEqual(len(full['runs']),3)
+        self.assertEqual(sum(g['n'] for g in full['aggregates']),2)
+        self.assertEqual((await self.client.get(endpoint+'/export.json')).status_code,404)
+        self.assertEqual((await self.client.get(endpoint+'/export.json?include_excluded=true')).status_code,200)
+        for _ in range(2):
+            r=await self.client.put(endpoint+'/exclusion',json={'excluded':False})
+            self.assertEqual(r.status_code,200,r.text)
+        restored=(await self.client.get(endpoint)).json()
+        self.assertEqual([a['action'] for a in restored['exclusion_audit']],['exclude','restore'])
+        self.assertEqual(restored['exclusion_audit'][1]['reason'],'operator_mistake')
+        self.assertEqual(restored['exclusion_audit'][1]['comment'],payload['comment'])
+        self.assertIsNone(restored['excluded_at'])
+        for field in ['outcome','valid_result','finished_at','summary','measured_summary','events','tasks']:
+            self.assertEqual(restored[field],before[field],field)
+        summary=(await self.client.get('/summary')).json()
+        self.assertEqual((summary['n_total'],summary['n_excluded']),(3,0))
+        self.assertEqual(sum(g['n'] for g in summary['groups']),3)
+        for name in SCHEMAS:await self.conn.execute((DB_DIR/name).read_text(encoding='utf-8'))
+        self.assertEqual(await self.conn.fetchval('SELECT count(*) FROM orchestration_lab.exclusion_audit'),2)
+        self.assertEqual(await self.conn.fetchval('SELECT count(*) FROM orchestration_lab.runs'),3)
+
+    async def test_exclusion_requires_reason_and_finished_workers(self):
+        endpoint=f'/runs/{self.id}/exclusion'
+        for payload in [{'excluded':True},{'excluded':True,'reason':'other','comment':'  '},
+                        {'excluded':True,'reason':'ocr_failed'},{'excluded':False,'reason':'bad_setup'}]:
+            self.assertEqual((await self.client.put(endpoint,json=payload)).status_code,422)
+        payload={'excluded':True,'reason':'other','comment':'Ошибочно выбран режим'}
+        self.assertEqual((await self.client.put(endpoint,json=payload)).status_code,409)
+        tid=uuid4()
+        await self.conn.execute("INSERT INTO orchestration_lab.ocr_tasks(id,run_id,kind,status,input_sha256) VALUES($1,$2,'ocr','running','test')",tid,UUID(self.id))
+        await self.client.post(f'/runs/{self.id}/finish',json={'outcome':'timeout'})
+        self.assertEqual((await self.client.put(endpoint,json=payload)).status_code,409)
+        await self.conn.execute("UPDATE orchestration_lab.ocr_tasks SET status='interrupted' WHERE id=$1",tid)
+        response=await self.client.put(endpoint,json=payload)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(await self.conn.fetchval('SELECT count(*) FROM orchestration_lab.exclusion_audit'),1)
+
+    async def test_orientation_events_are_exported_without_changing_metrics(self):
+        events=[{'seq':i,'event_name':name,'relative_ms':10+i,'details':{'angle':i*90}} for i,name in
+            enumerate(['orientation_selected','frame_rotation_changed','preview_rotation_changed'])]
+        r=await self.client.post(f'/runs/{self.id}/events',json={'events':events})
+        self.assertEqual(r.status_code,200,r.text)
+        data=(await self.client.get(f'/runs/{self.id}/export.json')).json()['runs'][0]
+        self.assertEqual([e['details']['angle'] for e in data['events']],[0,90,180])
+        self.assertFalse(data['excluded_from_analysis'])

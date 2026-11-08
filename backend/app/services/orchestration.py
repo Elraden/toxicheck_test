@@ -247,6 +247,7 @@ def aggregate(runs):
     import math
     grouped={}
     for run in runs:
+        if run.get('excluded_from_analysis',False): continue
         # Environment's run-start wall time isn't an experimental condition.
         env={k:v for k,v in run['environment'].items() if k!='started_at_utc'}
         group_key=encoded([run['protocol_version'],run['mode'],run['config'],env])

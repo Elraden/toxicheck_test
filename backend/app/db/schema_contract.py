@@ -18,4 +18,4 @@ REQUIRED_TABLES = ({f'catalog.{name}' for name in CATALOG_TABLES}
                    | {f'public.{name}' for name in IDENTITY_TABLES}
                    | {f'decision_tree.{name}' for name in DECISION_TABLES}
                    | {f'research.{name}' for name in RESEARCH_TABLES}
-                   | {f'orchestration_lab.{name}' for name in ('cases','runs','events','ocr_tasks')})
+                   | {f'orchestration_lab.{name}' for name in ('cases','runs','events','ocr_tasks','exclusion_audit')})

@@ -1,5 +1,6 @@
 """Admin-only real-camera orchestration experiment API."""
 from uuid import UUID, uuid4
+from typing import Literal
 from datetime import datetime
 import hashlib
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,7 +10,7 @@ from app.db.session import AnnotationSessionLocal
 from app.services.identity import Principal
 from app.services import orchestration as lab
 from app.services.research_storage import decode_photo
-from app.schemas.orchestration import CaseInput, RunInput, EventsInput, TaskInput, FinishInput, ReviewInput, Mode
+from app.schemas.orchestration import CaseInput, RunInput, EventsInput, TaskInput, FinishInput, ReviewInput, ExclusionInput, Mode
 
 async def lab_access(actor:Principal=Depends(require_admin)):
     await throttle('lab:access:'+str(actor.user.id),600,60)
@@ -184,11 +185,34 @@ async def review(run_id:UUID,payload:ReviewInput,actor:Principal=Depends(admin_w
         await lab.server_event(db,run_id,'review_changed',{'needs_review':payload.needs_review})
     return {'saved':True}
 
+@router.put('/runs/{run_id}/exclusion')
+async def exclusion(run_id:UUID,payload:ExclusionInput,actor:Principal=Depends(admin_write)):
+    async with AnnotationSessionLocal() as db,db.begin():
+        run=await owned(db,run_id,actor,True)
+        pending=await db.scalar(text("SELECT EXISTS(SELECT 1 FROM orchestration_lab.ocr_tasks WHERE run_id=:id AND status='running')"),dict(id=run_id))
+        if run['status']=='running' or pending:
+            raise HTTPException(409,'Дождитесь завершения запуска и всех серверных задач.')
+        if run['excluded_from_analysis']==payload.excluded and (not payload.excluded or
+                (run['exclusion_reason']==payload.reason and run['exclusion_comment']==payload.comment)):
+            return dict(run)
+        reason=payload.reason if payload.excluded else run['exclusion_reason']
+        comment=payload.comment if payload.excluded else run['exclusion_comment']
+        await db.execute(text('''INSERT INTO orchestration_lab.exclusion_audit(run_id,actor_id,action,reason,comment)
+            VALUES(:id,:actor,:action,:reason,:comment)'''),
+            dict(id=run_id,actor=actor.user.id,action='exclude' if payload.excluded else 'restore',reason=reason,comment=comment))
+        return dict((await db.execute(text('''UPDATE orchestration_lab.runs SET
+            excluded_from_analysis=:excluded,exclusion_reason=:reason,exclusion_comment=:comment,
+            excluded_at=CASE WHEN :excluded THEN now() ELSE NULL END,excluded_by=:actor
+            WHERE id=:id RETURNING *'''),
+            dict(id=run_id,excluded=payload.excluded,reason=payload.reason if payload.excluded else None,
+                 comment=payload.comment if payload.excluded else None,actor=actor.user.id if payload.excluded else None))).mappings().one())
+
 async def detail(db,id,actor):
     run=dict(await owned(db,id,actor))
     run['events']=[dict(x) for x in (await db.execute(text('SELECT * FROM orchestration_lab.events WHERE run_id=:id ORDER BY source,seq'),dict(id=id))).mappings()]
     run['tasks']=[dict(x) for x in (await db.execute(text('SELECT * FROM orchestration_lab.ocr_tasks WHERE run_id=:id ORDER BY requested_at'),dict(id=id))).mappings()]
     run['case']=dict((await db.execute(text('SELECT * FROM orchestration_lab.cases WHERE id=:id'),dict(id=run['case_id']))).mappings().one())
+    run['exclusion_audit']=[dict(x) for x in (await db.execute(text('SELECT * FROM orchestration_lab.exclusion_audit WHERE run_id=:id ORDER BY id'),dict(id=id))).mappings()]
     run['measured_summary']=lab.measured_summary(run,run['tasks'],run['events'])
     return run
 
@@ -208,8 +232,12 @@ def filter_query(actor,mode,case_id,since,until,outcome):
 @router.get('/runs')
 async def runs(actor:Principal=Depends(require_admin),mode:Mode|None=None,case_id:UUID|None=None,
                since:datetime|None=None,until:datetime|None=None,outcome:str|None=Query(None,max_length=40),
-               limit:int=Query(30,ge=1,le=100),offset:int=Query(0,ge=0)):
+               limit:int=Query(30,ge=1,le=100),offset:int=Query(0,ge=0),
+               exclusion_status:Literal['active','excluded','all']='active'):
     where,params=filter_query(actor,mode,case_id,since,until,outcome)
+    if exclusion_status!='all':
+        where+=' AND excluded_from_analysis=:excluded'
+        params['excluded']=exclusion_status=='excluded'
     async with AnnotationSessionLocal() as db:
         total=await db.scalar(text('SELECT count(*) FROM orchestration_lab.runs WHERE '+where),params)
         items=[dict(x) for x in (await db.execute(text('SELECT * FROM orchestration_lab.runs WHERE '+where+
@@ -217,20 +245,24 @@ async def runs(actor:Principal=Depends(require_admin),mode:Mode|None=None,case_i
         return {'items':items,'total':total}
 
 @router.get('/runs/{run_id}/export.json')
-async def export_one(run_id:UUID,actor:Principal=Depends(require_admin)):
+async def export_one(run_id:UUID,actor:Principal=Depends(require_admin),include_excluded:bool=False):
     async with AnnotationSessionLocal() as db,db.begin():
         await db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'))
-        return {'schema_version':1,'exported_at':lab.now(),'runs':[await detail(db,run_id,actor)]}
+        item=await detail(db,run_id,actor)
+        if item['excluded_from_analysis'] and not include_excluded:
+            raise HTTPException(404,'Запуск исключён; для полного экспорта укажите include_excluded=true.')
+        return {'schema_version':1,'exported_at':lab.now(),'include_excluded':include_excluded,'runs':[item]}
 
 @router.get('/export.json')
 async def export_series(actor:Principal=Depends(require_admin),mode:Mode|None=None,case_id:UUID|None=None,
-                        since:datetime|None=None,until:datetime|None=None,outcome:str|None=Query(None,max_length=40)):
+                        since:datetime|None=None,until:datetime|None=None,outcome:str|None=Query(None,max_length=40),include_excluded:bool=False):
     where,params=filter_query(actor,mode,case_id,since,until,outcome)
+    if not include_excluded: where+=' AND NOT excluded_from_analysis'
     async with AnnotationSessionLocal() as db,db.begin():
         await db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'))
         ids=list((await db.scalars(text('SELECT id FROM orchestration_lab.runs WHERE '+where+' ORDER BY started_at LIMIT 201'),params)).all())
         if len(ids)>200: raise HTTPException(422,'Уточните фильтры: максимум 200 запусков.')
-        result={'schema_version':1,'exported_at':lab.now(),'runs':[]}; size=0
+        result={'schema_version':1,'exported_at':lab.now(),'include_excluded':include_excluded,'runs':[]}; size=0
         for id in ids:
             item=await detail(db,id,actor); size+=len(lab.encoded(item).encode())
             if size>32*1024*1024: raise HTTPException(422,'Выгрузка больше 32 МБ. Уточните фильтры.')
@@ -254,10 +286,10 @@ async def summary(actor:Principal=Depends(require_admin),mode:Mode|None=None,cas
         await db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'))
         rows=[dict(x) for x in (await db.execute(text('SELECT * FROM orchestration_lab.runs WHERE '+where+' ORDER BY started_at LIMIT 1001'),params)).mappings()]
         if len(rows)>1000: raise HTTPException(422,'Уточните фильтры: сводка ограничена 1000 запусками.')
-        if not rows: return {'groups':[]}
+        if not rows: return {'groups':[],'n_total':0,'n_excluded':0}
         ids=[r['id'] for r in rows]
         tasks=[dict(x) for x in (await db.execute(text('SELECT * FROM orchestration_lab.ocr_tasks WHERE run_id=ANY(CAST(:ids AS uuid[]))'),dict(ids=ids))).mappings()]
         events=[dict(x) for x in (await db.execute(text('SELECT * FROM orchestration_lab.events WHERE run_id=ANY(CAST(:ids AS uuid[])) ORDER BY seq'),dict(ids=ids))).mappings()]
         for row in rows:
             row['measured_summary']=lab.measured_summary(row,[t for t in tasks if t['run_id']==row['id']],[e for e in events if e['run_id']==row['id']])
-        return {'groups':lab.aggregate(rows)}
+        return {'groups':lab.aggregate(rows),'n_total':len(rows),'n_excluded':sum(r['excluded_from_analysis'] for r in rows)}
