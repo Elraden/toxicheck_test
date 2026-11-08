@@ -1,19 +1,40 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { refreshSession } from '@/services/userSession';
 import { Orchestrator, defaults, modes, realClock, validateConfig, type Mode, type Config, type Event, type Task, type Finish } from '@/research/orchestration/engine';
-import { capture, resetFrames, photoImage, previewRotation, rotatedSize, quarterTurn, type FrameState } from '@/research/orchestration/capture';
+import { capture, resetFrames, photoImage, previewRotation, rotatedSize, quarterTurn, frameScore, type FrameState, type CapturedFrame, type FrameAssessment } from '@/research/orchestration/capture';
 import { read, write, download } from '@/research/orchestration/api';
+import { apiBaseUrl } from '@/services/http';
 
-type Case = {id:string;product_label:string;expected_barcode:string|null;label_layout:string};
-type Run = {excluded_from_analysis:boolean;exclusion_reason:string|null;exclusion_comment:string|null;exclusion_audit?:{id:number;action:string;reason:string;comment:string|null;created_at:string}[];id:string;case_id:string;mode:Mode;status:string;outcome:string|null;valid_result:boolean;protocol_version:string;config:Config;started_at:string;summary:{client_observations?:Record<string,unknown>};needs_review:boolean;events?:Event[];tasks?:Task[];case?:Case};
+type Case = {id:string;product_label:string;expected_barcode:string|null;label_layout:string;notes:string;reference_ingredients:string[]};
+type QualityReview={matched_indices:number[];matched_count:number;reference_count:number;ingredient_recall:number;quality_success:boolean;frame_complete:boolean|null;note:string};
+type QualityDraft={matched_indices:number[];frame_complete:boolean|null;note:string};
+type LabTask=Task&{quality_review?:QualityReview|null};
+type Run = {environment:Record<string,unknown>;excluded_from_analysis:boolean;exclusion_reason:string|null;exclusion_comment:string|null;exclusion_audit?:{id:number;action:string;reason:string;comment:string|null;created_at:string}[];id:string;case_id:string;mode:Mode;status:string;outcome:string|null;valid_result:boolean;protocol_version:string;config:Config;started_at:string;summary:{client_observations?:Record<string,unknown>};needs_review:boolean;events?:Event[];tasks?:LabTask[];case?:Case};
 const statuses:Record<string,string>={waiting:'Ожидание',idle:'Не запущен',running:'Выполняется',detected:'Найден',failed:'Не найден',stopped_for_photo:'Переход к фото',timeout:'Тайм-аут',error:'Ошибка',sufficient:'Состав получен',insufficient:'Недостаточно данных',valid_barcode:'Состав по штрихкоду',valid_ocr:'Состав через OCR',incomplete:'Недостаточно данных',cancelled:'Прерван оператором',technical_failure:'Техническая ошибка',finished:'Завершён',interrupted:'Прерван'};
 const labels:Record<Mode,string>={'photo_sequential':'Фото · последовательно','photo_adaptive':'Фото · адаптивно','video_sequential':'Видео · последовательно','video_parallel':'Видео · параллельно','video_adaptive':'Видео · адаптивно'};
 const authorized=ref(false),loading=ref(true),error=ref(''),saveError=ref(''),busy=ref(false),active=ref(false);
 const mode=ref<Mode>('photo_sequential'),config=ref<Config>({...defaults});
 const cases=ref<Case[]>([]),selectedCase=ref(''),product=ref(''),expected=ref(''),layout=ref('unknown'),notes=ref(''),device=ref('');
+const runLayout=ref<'same_side'|'different_side'|'unknown'|''>('');
+const newReference=ref(''),referenceDraft=ref(''),qualityDrafts=ref<Record<string,QualityDraft>>({});
+const parseReference=(value:string)=>value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);
+watch(selectedCase,()=>{
+  const current=cases.value.find(c=>c.id===selectedCase.value);
+  referenceDraft.value=current?.reference_ingredients?.join('\n')??'';
+  runLayout.value='';
+});
+async function saveReference(){
+  const current=cases.value.find(c=>c.id===selectedCase.value);if(!current||active.value||busy.value)return;
+  const updated=await write<Case>('/cases/'+current.id,{
+    product_label:current.product_label,expected_barcode:current.expected_barcode,
+    label_layout:current.label_layout,notes:current.notes,reference_ingredients:parseReference(referenceDraft.value)
+  },'PUT');
+  cases.value=cases.value.map(c=>c.id===updated.id?updated:c);
+}
+
 const cameraPanel=ref<HTMLElement>();
 const tabs=[{id:'settings',label:'Настройки'},{id:'camera',label:'Камера'},{id:'history',label:'История'}] as const;
 const tab=ref<'settings'|'camera'|'history'>('settings');
@@ -39,7 +60,7 @@ function updatePhotoRotation(){
   if(preview.value&&originalPhoto)preview.value=photoImage(originalPhoto,effectiveRotation.value);
 }
 function orientationChanged(source='selection'){
-  resetFrames(frameState);updatePhotoRotation();
+  resetFrames(frameState);resetPool();updatePhotoRotation();
   if(active.value)engine?.event('orientation_selected',{orientation:orientation.value,layout:cameraLayout.value,angle:angle.value,effective_angle:effectiveRotation.value,source});
 }
 function deviceRotated(){
@@ -48,11 +69,11 @@ function deviceRotated(){
   deviceLandscape.value=next;orientationChanged('device');
 }
 function rotateFrame(){
-  angle.value=quarterTurn(angle.value+90);resetFrames(frameState);updatePhotoRotation();
+  angle.value=quarterTurn(angle.value+90);resetFrames(frameState);resetPool();updatePhotoRotation();
   if(active.value)engine?.event('frame_rotation_changed',{angle:angle.value,effective_angle:effectiveRotation.value});
   if(preview.value&&originalPhoto&&active.value)engine?.event('preview_rotation_changed',{angle:angle.value,effective_angle:effectiveRotation.value});
 }
-function discardPhoto(){preview.value='';originalPhoto=null;}
+function discardPhoto(){preview.value='';originalPhoto=null;photoMeta={};}
 const exclusionStatus=ref('active'),includeExcluded=ref(false),nTotal=ref(0),nExcluded=ref(0);
 const exclusionDialog=ref<HTMLDialogElement>(),exclusionTarget=ref<Run|null>(null),exclusionReason=ref(''),exclusionComment=ref(''),exclusionBusy=ref(false),exclusionError=ref('');
 const reasons:Record<string,string>={wrong_product:'Выбран другой товар',bad_setup:'Неверно подготовлены условия',operator_mistake:'Ошибка оператора',duplicate_trial:'Случайный повтор запуска',instrumentation_error:'Повреждена запись или телеметрия',other:'Другая документированная причина'};
@@ -107,6 +128,25 @@ const filterMode=ref(''),filterCase=ref(''),filterOutcome=ref(''),since=ref(''),
 let engine:Orchestrator|undefined,stream:MediaStream|undefined,controls:IScannerControls|undefined;
 let frameTimer:ReturnType<typeof setInterval>|undefined,flushTimer:ReturnType<typeof setInterval>|undefined;
 let frameState:FrameState={previous:null,lastSent:null},outbox:Event[]=[],flushing=false,pendingFinish:Finish|undefined;
+let framePool:CapturedFrame[]=[],poolStarted=0,photoMeta:Record<string,unknown>={};
+function resetPool(){framePool=[];poolStarted=0;}
+function observeFrame(q:FrameAssessment){
+  engine?.event('frame_evaluated',q as unknown as Record<string,unknown>);
+  if(!q.accepted)engine?.event('frame_rejected',{reason:q.reason,sharpness:q.sharpness,brightness:q.brightness});
+}
+function toggleQuality(taskId:string,index:number,enabled:boolean){
+  const draft=qualityDrafts.value[taskId];if(!draft)return;
+  draft.matched_indices=enabled?[...draft.matched_indices.filter(v=>v!==index),index]:draft.matched_indices.filter(v=>v!==index);
+}
+async function saveQuality(taskId:string){
+  const run=detail.value,draft=qualityDrafts.value[taskId];if(!run||!draft)return;
+  await write('/runs/'+run.id+'/tasks/'+taskId+'/quality',draft,'PUT');
+  await openRun(run.id);
+}
+function frameImage(runId:string,taskId:string){
+  return apiBaseUrl+'/admin/orchestration/runs/'+runId+'/tasks/'+taskId+'/image';
+}
+
 let destroyed=false,generation=0;
 const tasks=new Map<string,boolean>();
 const taskKinds=new Map<string,string>();
@@ -135,7 +175,7 @@ async function flush(){
 }
 function emit(e:Event){trace.value.push(e);outbox.push(e);stash();}
 function stopBarcode(){controls?.stop();controls=undefined;}
-function stopCamera(){stopBarcode();stream?.getTracks().forEach(t=>t.stop());stream=undefined;if(frameTimer)clearInterval(frameTimer);}
+function stopCamera(){stopBarcode();stream?.getTracks().forEach(t=>t.stop());stream=undefined;if(frameTimer)clearInterval(frameTimer);resetPool();}
 function cancelTasks(kind?:string){
   for(const [id,running] of tasks)if(running&&(!kind||taskKinds.get(id)===kind))void write('/runs/'+runId.value+'/tasks/'+id+'/cancel',{}).catch(e=>{saveError.value=message(e);});
 }
