@@ -60,6 +60,7 @@ export const router = createRouter({
     component: AppLayout,
     children: [
       { path: 'admin', name: 'admin', component: AdminView },
+      { path: 'admin/orchestration', name: 'orchestration', component: () => import('./views/OrchestrationExperimentView.vue') },
       { path: 'research', alias: '/research', name: 'research', component: () => import('./views/ResearchView.vue') },
       { path: 'research/:runId', alias: '/research/:runId', name: 'research-run', component: () => import('./views/ResearchRunView.vue') },
       { path: 'admin/research', name: 'research-admin', component: () => import('./views/ResearchAdminView.vue') },

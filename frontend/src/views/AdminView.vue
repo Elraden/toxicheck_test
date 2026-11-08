@@ -48,6 +48,7 @@ onMounted(() => { void check(); });
     <section v-else-if="admin" class="admin-profile">
       <ShieldCheck :size="28" aria-hidden="true" /><h2>{{ admin.display_name || 'Администратор' }}</h2>
       <RouterLink :to="{ name: 'research-admin' }">Исследования: проверки, эталоны и выгрузка →</RouterLink>
+      <RouterLink :to="{ name: 'orchestration' }">Экспериментальный стенд: Photo / Video →</RouterLink>
       <dl><dt>Роль</dt><dd>Администратор</dd><dt>Статус</dt><dd>Вход выполнен</dd></dl>
       <button type="button" :disabled="busy" @click="logout()"><LogOut :size="18" aria-hidden="true" />Выйти</button>
       <button type="button" class="secondary" :disabled="busy" @click="logout(true)">Выйти на всех устройствах</button>

@@ -13,7 +13,7 @@ from app.db.bootstrap_catalog import CatalogBootstrapError, bootstrap_catalog, c
 from app.db.build_catalog import DEFAULT_OUTPUT
 
 DB_DIR = Path(__file__).resolve().parents[2] / 'db'
-SCHEMAS = ('schema_catalog.sql', 'migrations/20261029_identity.sql', 'migrations/20261030_research.sql')
+SCHEMAS = ('schema_catalog.sql', 'migrations/20261029_identity.sql', 'migrations/20261030_research.sql', 'migrations/20261108_orchestration_experiments.sql')
 
 
 async def initialize(host, apply=False, *, bootstrap=False, catalog_file=DEFAULT_OUTPUT):

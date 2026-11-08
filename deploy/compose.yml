@@ -43,6 +43,7 @@ services:
             ]
         environment:
             APP_ENV: production
+            ORCHESTRATION_RECOVER_ON_STARTUP: "true"
             DATABASE_URL: postgresql+asyncpg://toxicheck:${POSTGRES_PASSWORD}@postgres:5432/toxicheck
             TOXICHECK_CATALOG_DATABASE_URL: postgresql+asyncpg://toxicheck:${POSTGRES_PASSWORD}@postgres:5432/toxicheck
             FRONTEND_ORIGINS: https://${SITE_ADDRESS:?Set SITE_ADDRESS}
