@@ -22,7 +22,7 @@ from app.schemas.analysis import AnalysisPreferences
 
 log = logging.getLogger(__name__)
 live_tasks = set()
-PROTOCOL = 'live-v3.0'
+PROTOCOL = 'live-v3.1'
 SERVER_VERSION = settings.research_app_version
 
 def now():
@@ -164,7 +164,7 @@ async def perform(task_id, run_id, kind, value, lookup_ms):
                 await db.execute(text("SELECT id FROM orchestration_lab.runs WHERE id=:id FOR UPDATE"),dict(id=run_id))
                 await db.execute(text("""UPDATE orchestration_lab.ocr_tasks SET
                     status=:status,result=CAST(:result AS jsonb),sufficient=:ok,
-                    worker_started_at=:ws,worker_finished_at=:we,metrics=CAST(:metrics AS jsonb),
+                    worker_started_at=:ws,worker_finished_at=:we,metrics=metrics || CAST(:metrics AS jsonb),
                     measurement_quality=:quality,rss_peak_bytes=:rss,
                     cancellation=cancellation || CAST(:cancel AS jsonb)
                     WHERE id=:id"""),
@@ -220,6 +220,10 @@ def measured_summary(run, tasks, events):
     peak=[t['metrics'].get('shared_process_rss_peak_bytes') for t in ocr]
     peak=[x for x in peak if isinstance(x,int)]
     winner=run['summary'].get('winning_task_id')
+    winning_ocr=next((t for t in ocr if str(t['id'])==str(winner)),None)
+    review=winning_ocr.get('quality_review') if winning_ocr else None
+    reviewed=review is not None
+    capture_processing=[e.get('details',{}).get('capture_ms') for e in browser if e['event_name']=='frame_evaluated']
     return dict(
         sufficient_result=run['valid_result'],final_outcome=run['outcome'],
         end_to_end_ms=first.get('result_displayed') if run['valid_result'] else None,
@@ -231,6 +235,11 @@ def measured_summary(run, tasks, events):
         ocr_calls=len(ocr),api_calls=len(tasks),
         frames_considered=sum(e['event_name']=='frame_considered' for e in browser),
         frames_sent=sum(e['event_name']=='frame_selected' for e in browser),
+        frames_rejected=sum(e['event_name']=='frame_rejected' for e in browser),
+        frame_capture_ms=sum(x for x in capture_processing if isinstance(x,(float,int))) if capture_processing else None,
+        quality_reviewed=reviewed,
+        ingredient_recall=review.get('ingredient_recall') if reviewed else None,
+        quality_success=review.get('quality_success') if reviewed else None,
         ocr_worker_ms=complete_sum('ocr_worker_ms'),ocr_cpu_time_ms=None,
         shared_process_cpu_delta_ms=complete_sum('shared_process_cpu_delta_ms'),
         shared_process_rss_peak_bytes=max(peak) if peak else None,
@@ -261,9 +270,15 @@ def aggregate(runs):
         cpu=sum(v or 0 for v in values) if complete else None
         peaks=[s['shared_process_rss_peak_bytes'] for s in summaries if s['shared_process_rss_peak_bytes'] is not None]
         success=sum(r['valid_result'] for r in rows)
+        quality_reviewed=sum(s.get('quality_reviewed',False) for s in summaries)
+        quality_successes=sum(s.get('quality_success') is True for s in summaries)
+        quality_recalls=[s['ingredient_recall'] for s in summaries if isinstance(s.get('ingredient_recall'),(int,float))]
         result.append(dict(key=hashlib.sha256(key.encode()).hexdigest(),mode=rows[0]['mode'],protocol=rows[0]['protocol_version'],
             config=rows[0]['config'],environment={k:v for k,v in rows[0]['environment'].items() if k!='started_at_utc'},
             n=len(rows),success=success,success_rate=success/len(rows),running=sum(r['status']=='running' for r in rows),
+            quality_reviewed=quality_reviewed,quality_successes=quality_successes,
+            quality_success_rate=quality_successes/quality_reviewed if quality_reviewed else None,
+            mean_ingredient_recall=sum(quality_recalls)/len(quality_recalls) if quality_recalls else None,
             p50=times[max(0,math.ceil(len(times)*.5)-1)] if times else None,
             p95=times[max(0,math.ceil(len(times)*.95)-1)] if times else None,
             timed_successes=len(times),ocr_calls=sum(s['ocr_calls'] for s in summaries),
