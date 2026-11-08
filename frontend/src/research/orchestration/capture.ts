@@ -2,6 +2,11 @@
 export type FrameState={previous:number[]|null;lastSent:number[]|null;geometry?:string};
 export function resetFrames(state:FrameState){state.previous=null;state.lastSent=null;state.geometry=undefined;}
 export function quarterTurn(angle:number){return ((angle%360)+360)%360;}
+// Match the live camera preview orientation with the OCR canvas orientation.
+export function previewRotation(width:number,height:number,layout:'portrait'|'landscape',manualAngle=0){
+  const base=width>0&&height>0&&width!==height&&((width>height)!==(layout==='landscape'))?90:0;
+  return quarterTurn(base+manualAngle);
+}
 export function rotatedSize(width:number,height:number,angle:number){
   const a=quarterTurn(angle);
   if(![0,90,180,270].includes(a))throw new Error('Only quarter turns are supported');
