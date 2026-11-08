@@ -19,6 +19,12 @@ async function fixture(page,{video=false}={}){
      body={...req.postDataJSON(),status:'running',protocol_version:'live-v3.0',summary:{},started_at:new Date().toISOString(),excluded_from_analysis:false,tasks:[],events:[]};
      state.runs.push(body);
    }
+   else if(method==='DELETE'&&path.includes('/runs/')){
+     const id=path.split('/').at(-1),index=state.runs.findIndex(run=>run.id===id);
+     if(index<0)throw new Error('Mock run not found');
+     state.runs.splice(index,1);
+     body={deleted:true,id};
+   }
    else if(path.endsWith('/runs')){
      const status=url.searchParams.get('exclusion_status');
      const items=state.runs.filter(r=>status==='all'||(status==='excluded'?r.excluded_from_analysis:!r.excluded_from_analysis));
@@ -106,6 +112,27 @@ test('capture and confirmation stay visible over the camera on a phone-sized scr
  await retake.click();
  await expect(capture).toBeVisible();
  await expect(confirm).toHaveCount(0);
+});
+test('completed experiment can be excluded or permanently deleted after explicit confirmation',async({page})=>{
+ const state=await fixture(page);
+ await configure(page,'photo_adaptive');
+ await page.getByRole('button',{name:'Начать эксперимент',exact:true}).click();
+ await page.getByRole('button',{name:'Сфотографировать состав',exact:true}).click();
+ await page.getByRole('button',{name:'Подтвердить фото',exact:true}).click();
+ await expect(page.getByText('Получен пригодный состав',{exact:true})).toBeVisible();
+ await expect.poll(()=>state.finish?.outcome).toBe('valid_ocr');
+ await page.getByRole('tab',{name:'История',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Исключить из анализа',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Удалить',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Удалить запуск навсегда?'});
+ await expect(dialog).toBeVisible();
+ const irreversible=dialog.getByRole('button',{name:'Удалить навсегда',exact:true});
+ await expect(irreversible).toBeDisabled();
+ await dialog.getByRole('textbox',{name:/Введите УДАЛИТЬ для подтверждения/}).fill('УДАЛИТЬ');
+ await irreversible.click();
+ await expect(dialog).toBeHidden();
+ await expect(page.getByRole('button',{name:'Удалить',exact:true})).toHaveCount(0);
+ expect(state.runs).toHaveLength(0);
 });
 test('photo preview exactly matches submitted bytes; orientation events retain the run',async({page})=>{
  const state=await fixture(page);
