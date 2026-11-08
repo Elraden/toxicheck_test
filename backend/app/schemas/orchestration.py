@@ -27,6 +27,31 @@ class CaseInput(BaseModel):
     expected_barcode: str | None = Field(default=None, pattern=r'^\d{8,14}$')
     label_layout: Literal['same_side','different_side','unknown'] = 'unknown'
     notes: str = Field(default='', max_length=2000)
+    reference_ingredients: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode='after')
+    def valid_reference(self):
+        values = [item.strip() for item in self.reference_ingredients]
+        if any(not item or len(item) > 160 for item in values):
+            raise ValueError('Эталонные ингредиенты: от 1 до 160 символов в каждой строке.')
+        if len({item.casefold() for item in values}) != len(values):
+            raise ValueError('Эталонный состав содержит повторяющиеся ингредиенты.')
+        self.reference_ingredients = values
+        return self
+
+
+class QualityReviewInput(BaseModel):
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
+    matched_indices: list[int] = Field(default_factory=list, max_length=100)
+    frame_complete: bool | None = None
+    note: str = Field(default='', max_length=1000)
+
+    @model_validator(mode='after')
+    def unique_matches(self):
+        if len(set(self.matched_indices)) != len(self.matched_indices):
+            raise ValueError('Нельзя выбирать один ингредиент несколько раз.')
+        return self
+
 
 class RunInput(BaseModel):
     id: UUID
@@ -49,6 +74,7 @@ class TaskInput(BaseModel):
     id: UUID
     barcode: str | None = Field(default=None, pattern=r'^\d{8,14}$')
     image_base64: str | None = Field(default=None, max_length=17000000)
+    capture_metrics: dict = Field(default_factory=dict)
 
 class FinishInput(BaseModel):
     outcome: Literal['valid_barcode','valid_ocr','incomplete','timeout','api_error','ocr_error','cancelled','technical_failure']
