@@ -6,7 +6,7 @@ import { refreshSession } from '@/services/userSession';
 import { Orchestrator, defaults, modes, realClock, validateConfig, type Mode, type Config, type Event, type Task, type Finish } from '@/research/orchestration/engine';
 import { capture, resetFrames, photoImage, previewRotation, rotatedSize, quarterTurn, frameScore, type FrameState, type CapturedFrame, type FrameAssessment } from '@/research/orchestration/capture';
 import { read, write, download } from '@/research/orchestration/api';
-import { apiBaseUrl } from '@/services/http';
+import { apiBaseUrl, ApiError } from '@/services/http';
 
 type Case = {id:string;product_label:string;expected_barcode:string|null;label_layout:string;notes:string;reference_ingredients:string[]};
 type QualityReview={matched_indices:number[];matched_count:number;reference_count:number;ingredient_recall:number;quality_success:boolean;frame_complete:boolean|null;note:string};
@@ -128,6 +128,7 @@ const filterMode=ref(''),filterCase=ref(''),filterOutcome=ref(''),since=ref(''),
 let engine:Orchestrator|undefined,stream:MediaStream|undefined,controls:IScannerControls|undefined;
 let frameTimer:ReturnType<typeof setInterval>|undefined,flushTimer:ReturnType<typeof setInterval>|undefined;
 let frameState:FrameState={previous:null,lastSent:null},outbox:Event[]=[],flushing=false,pendingFinish:Finish|undefined;
+const orphanedPending=ref(false);
 let framePool:CapturedFrame[]=[],poolStarted=0,photoMeta:Record<string,unknown>={};
 function resetPool(){framePool=[];poolStarted=0;}
 function observeFrame(q:FrameAssessment){
@@ -157,22 +158,59 @@ const videoInstruction='Покажите камере штрихкод и тек
 const key='toxicheck-orchestration-pending-v3';
 function message(e:unknown){return e instanceof Error?e.message:String(e);}
 function stash(){
-  try{sessionStorage.setItem(key,JSON.stringify({id:runId.value,events:outbox,finish:pendingFinish}));}
-  catch{saveError.value='Не удалось сохранить локальную очередь. Не закрывайте страницу до синхронизации.';}
+  try{
+    // A completed, fully synchronized run has no recovery queue. Never leave
+    // its ID in sessionStorage: it may later be deleted on the server.
+    if(!outbox.length&&!pendingFinish&&!active.value)sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key,JSON.stringify({id:runId.value,events:outbox,finish:pendingFinish}));
+  }catch{saveError.value='Не удалось сохранить локальную очередь. Не закрывайте страницу до синхронизации.';}
+}
+function pendingMissing(e:unknown){
+  if(e instanceof ApiError&&e.status===404){
+    orphanedPending.value=true;
+    saveError.value='Сервер не находит запуск из локальной очереди. Войдите под прежним администратором или сохраните резервную копию очереди и очистите её вручную.';
+    return true;
+  }
+  return false;
+}
+function backupPending(){
+  download({run_id:runId.value,events:outbox,finish:pendingFinish??null,reason:'recovery_backup'},
+    'toxicheck-pending-'+runId.value+'.json');
+}
+function discardOrphaned(){
+  if(!orphanedPending.value||active.value)return;
+  if(!window.confirm('Удалить только локальную очередь этого браузера? Записи на сервере и история экспериментов не удаляются. Сначала сохраните JSON, если события ещё нужны.'))return;
+  sessionStorage.removeItem(key);
+  runId.value='';outbox=[];pendingFinish=undefined;orphanedPending.value=false;saveError.value='';
+}
+async function retryPending(){
+  orphanedPending.value=false;saveError.value='';
+  try{
+    await read<Run>('/runs/'+runId.value);
+    await flush();
+  }catch(e){
+    if(!pendingMissing(e))saveError.value='Данные ещё не синхронизированы: '+message(e);
+  }
 }
 async function flush(){
-  if(flushing||!runId.value)return;flushing=true;
+  if(flushing||orphanedPending.value||!runId.value||(!outbox.length&&!pendingFinish))return;
+  flushing=true;
   try{
-    const batch=outbox.slice(0,100);
-    await write('/runs/'+runId.value+'/events',{events:batch});
-    outbox.splice(0,batch.length);stash();
+    if(outbox.length){
+      const batch=outbox.slice(0,100);
+      await write('/runs/'+runId.value+'/events',{events:batch});
+      outbox.splice(0,batch.length);stash();
+    }
     if(!outbox.length&&pendingFinish){
-      await write('/runs/'+runId.value+'/finish',pendingFinish);pendingFinish=undefined;stash();
+      await write('/runs/'+runId.value+'/finish',pendingFinish);
+      pendingFinish=undefined;stash();
       await loadHistory();
     }
+    if(!outbox.length&&!pendingFinish)stash();
     saveError.value='';
-  }catch(e){saveError.value='Данные ещё не синхронизированы: '+message(e);}
-  finally{flushing=false;}
+  }catch(e){
+    if(!pendingMissing(e))saveError.value='Данные ещё не синхронизированы: '+message(e);
+  }finally{flushing=false;}
 }
 function emit(e:Event){trace.value.push(e);outbox.push(e);stash();}
 function stopBarcode(){controls?.stop();controls=undefined;}
@@ -235,7 +273,7 @@ async function start(){
     validateConfig(config.value);
     if(!selectedCase.value)throw new Error('Выберите или добавьте товар.');
     if(!runLayout.value)throw new Error('Перед началом укажите расположение штрихкода и состава.');
-    if(outbox.length||pendingFinish)throw new Error('Сначала синхронизируйте предыдущий запуск.');
+    if(outbox.length||pendingFinish||orphanedPending.value)throw new Error('Сначала восстановите или сохраните и очистите локальную очередь предыдущего запуска.');
     if(!navigator.mediaDevices?.getUserMedia)throw new Error('Нужны HTTPS и браузер с доступом к камере.');
     runId.value=crypto.randomUUID();trace.value=[];tasks.clear();frameState={previous:null,lastSent:null};resetPool();discardPhoto();tab.value='camera';
     // Request permission in the user-gesture flow, but persist run even if permission fails.
@@ -366,18 +404,30 @@ onMounted(async()=>{
     selectedCase.value=cases.value[0]?.id??'';
     const saved=sessionStorage.getItem(key);
     if(saved){
-      const pending=JSON.parse(saved);runId.value=pending.id??'';outbox=pending.events??[];pendingFinish=pending.finish;
-      if(runId.value){
-        await flush();
-        const previous=await read<Run>('/runs/'+runId.value);
-        if(previous.status==='running'&&!pendingFinish){
-          pendingFinish={outcome:'cancelled',winning_task_id:null,summary:{interruption:'page_reloaded',end_to_end_ms:null}};
-          await flush();
+      try{
+        const pending=JSON.parse(saved);
+        const events=Array.isArray(pending?.events)?pending.events:[];
+        if(!pending?.id||(!events.length&&!pending?.finish)){
+          sessionStorage.removeItem(key);
+        }else{
+          runId.value=pending.id;outbox=events;pendingFinish=pending.finish??undefined;
+          try{
+            const previous=await read<Run>('/runs/'+runId.value);
+            if(previous.status==='running'&&!pendingFinish){
+              pendingFinish={outcome:'cancelled',winning_task_id:null,summary:{interruption:'page_reloaded',end_to_end_ms:null}};
+              stash();
+            }
+            await flush();
+          }catch(e){
+            if(!pendingMissing(e))saveError.value='Не удалось восстановить очередь: '+message(e);
+          }
         }
+      }catch(e){
+        saveError.value='Не удалось прочитать локальную очередь. Не удаляйте данные браузера: '+message(e);
       }
     }
     await loadHistory();
-    flushTimer=setInterval(()=>{if(runId.value&&(active.value||outbox.length||pendingFinish))void flush();},2000);
+    flushTimer=setInterval(()=>{if(runId.value&&!orphanedPending.value&&(outbox.length||pendingFinish))void flush();},2000);
   }catch(e){error.value=message(e);}finally{loading.value=false;}
 });
 onBeforeUnmount(()=>{
@@ -395,8 +445,15 @@ onBeforeUnmount(()=>{
   <p v-if="loading">Проверяем доступ…</p>
   <p v-else-if="!authorized">Требуется <RouterLink :to="{name:'admin'}">вход администратора</RouterLink>.</p>
   <template v-else>
-    <p class="notice">Пилот v3.1: пригодность ответа не означает подтверждённую точность состава. Сравнивайте один товар в разных режимах, чередуя их порядок.</p>
-    <p v-if="saveError" class="error" role="alert">{{ saveError }} <button @click="flush">Повторить сохранение</button></p>
+    <p class="notice">Пилот v3.2: пригодность ответа не означает подтверждённую точность состава. Качество изображения оценивайте отдельно от OCR.</p>
+    <div v-if="saveError" class="error" role="alert">
+      <p>{{ saveError }}</p>
+      <template v-if="orphanedPending">
+        <p>В локальной очереди: {{outbox.length}} событий{{pendingFinish?' и завершение запуска':''}}. Их можно сохранить в JSON перед очисткой. История на сервере не удаляется.</p>
+        <div class="actions"><button class="secondary" @click="backupPending">Сохранить резервный JSON</button><button class="secondary" @click="retryPending">Проверить повторно</button><button @click="discardOrphaned">Очистить локальную очередь</button></div>
+      </template>
+      <button v-else @click="flush">Повторить сохранение</button>
+    </div>
     <nav class="tabs" role="tablist" aria-label="Разделы стенда">
       <button v-for="(t,i) in tabs" :id="'lab-tab-'+t.id" :key="t.id" :disabled="(active||busy)&&t.id!=='camera'" role="tab" :aria-controls="'lab-panel-'+t.id" :aria-selected="tab===t.id" :tabindex="tab===t.id?0:-1" @click="changeTab(t.id)" @keydown="tabKey($event,i)">{{t.label}}<span v-if="t.id==='camera'&&active"> ●</span></button>
     </nav>

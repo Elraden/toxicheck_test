@@ -6,12 +6,16 @@ test.afterEach(async({page})=>{
 });
 
 // Only this test intercepts API traffic. Production keeps real OCR/OFF services.
-async function fixture(page,{video=false}={}){
+async function fixture(page,{video=false,missingRunId=null}={}){
  const item={id:'11111111-1111-4111-8111-111111111111',product_label:'Тестовая этикетка',label_layout:'different_side'};
  const state={runs:[],events:[],images:[],finish:null,ocr:null,admin:true};
  await page.route('**/api/**',async route=>{
    const req=route.request(),url=new URL(req.url()),path=url.pathname,method=req.method();
    let body={};
+   if(missingRunId&&path.endsWith('/runs/'+missingRunId)&&method==='GET'){
+     await route.fulfill({status:404,json:{detail:'Запуск не найден.'}});
+     return;
+   }
    if(path==='/api/auth/session')body={user:null,admin:state.admin?{id:'admin',role:'admin'}:null,admin_csrf:'test'};
    else if(path.endsWith('/cases'))body=[item];
    else if(path.endsWith('/summary'))body={groups:[],n_total:state.runs.length,n_excluded:state.runs.filter(r=>r.excluded_from_analysis).length};
@@ -219,4 +223,37 @@ test('tabs, mobile widths, exclusion confirmation, filters and restoration',asyn
  await expect(page.getByText('Всего: 1 · Исключено: 0 · В анализе: 1',{exact:true})).toBeVisible();
  expect(state.runs[0].outcome).toBe('timeout');
  await page.screenshot({path:testInfo.outputPath('history-mobile.png'),fullPage:true});
+});
+
+test('stale empty recovery record is cleared without attempting to access deleted run',async({page})=>{
+ const id='22222222-2222-4222-8222-222222222222';
+ const key='toxicheck-orchestration-pending-v3';
+ await page.addInitScript(({key,id})=>sessionStorage.setItem(key,JSON.stringify({id,events:[],finish:null})),{key,id});
+ let requestedMissing=false;
+ page.on('request',request=>{if(request.url().endsWith('/runs/'+id))requestedMissing=true;});
+ await fixture(page,{missingRunId:id});
+ await expect(page.getByRole('alert')).toHaveCount(0);
+ expect(requestedMissing).toBe(false);
+ expect(await page.evaluate(key=>sessionStorage.getItem(key),key)).toBeNull();
+});
+
+test('missing server run preserves pending events until backup and explicit discard',async({page})=>{
+ const id='33333333-3333-4333-8333-333333333333';
+ const key='toxicheck-orchestration-pending-v3';
+ const event={seq:0,event_name:'run_started',relative_ms:0,details:{mode:'video_parallel'}};
+ await page.addInitScript(({key,id,event})=>sessionStorage.setItem(key,
+   JSON.stringify({id,events:[event],finish:{outcome:'cancelled',summary:{interruption:'page_reloaded'}}})),{key,id,event});
+ await fixture(page,{missingRunId:id});
+ await expect(page.getByRole('alert')).toContainText('Сервер не находит запуск');
+ await expect(page.getByRole('alert')).toContainText('1 событий');
+ const backup=page.waitForEvent('download');
+ await page.getByRole('button',{name:'Сохранить резервный JSON'}).click();
+ expect((await backup).suggestedFilename()).toContain(id);
+ expect(JSON.parse(await page.evaluate(key=>sessionStorage.getItem(key),key)).events).toEqual([event]);
+ page.once('dialog',dialog=>dialog.accept());
+ await page.getByRole('button',{name:'Очистить локальную очередь'}).click();
+ await expect(page.getByRole('alert')).toHaveCount(0);
+ expect(await page.evaluate(key=>sessionStorage.getItem(key),key)).toBeNull();
+ await page.getByRole('tab',{name:'Камера',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Начать эксперимент'})).toBeEnabled();
 });
