@@ -183,7 +183,7 @@ async function start(){
     video.value.srcObject=stream;await video.value.play();syncCameraSize();engine.ready();
     const settings=stream.getVideoTracks()[0]?.getSettings();
     engine.event('camera_settings',{width:settings?.width,height:settings?.height,frame_rate:settings?.frameRate,facing_mode:settings?.facingMode});
-    cameraPanel.value?.scrollIntoView({block:'start',behavior:'smooth'});
+    cameraPanel.value?.scrollIntoView({block:'center',behavior:'smooth'});
     const hints=new Map();hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.EAN_13,BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.UPC_E]);
     const reader=new BrowserMultiFormatReader(hints,{delayBetweenScanAttempts:200,delayBetweenScanSuccess:500});
     controls=await reader.decodeFromVideoElement(video.value,(decoded,_error,ctrl)=>{
@@ -326,12 +326,19 @@ onBeforeUnmount(()=>{
     <section v-show="tab==='camera'" id="lab-panel-camera" role="tabpanel" aria-labelledby="lab-tab-camera">
     <p v-if="active" class="small">Во время запуска вкладка камеры остаётся открытой, чтобы браузер не приостанавливал скрытое видео.</p>
     <p class="small">{{labels[mode]}} · {{cases.find(c=>c.id===selectedCase)?.product_label||'Выберите товар в настройках'}}</p>
-    <p ref="cameraPanel" class="instruction">{{ isVideo?videoInstruction:'Покажите штрихкод. Если данных недостаточно, понадобится фотография состава. При разных сторонах упаковки поверните товар к составу.' }}</p>
+    <p class="instruction">{{ isVideo?videoInstruction:'Покажите штрихкод. Если данных недостаточно, понадобится фотография состава. При разных сторонах упаковки поверните товар к составу.' }}</p>
     <label>Ориентация области камеры<select v-model="orientation" :disabled="busy" @change="orientationChanged()"><option value="auto">По положению устройства</option><option value="portrait">Вертикальная</option><option value="landscape">Горизонтальная</option></select></label>
     <p class="small">Поворачивайте телефон, чтобы длинный состав поместился в кадр. Кнопка ниже сразу поворачивает живую картинку и одновременно кадр для OCR.</p>
-    <div class="camera-frame" :style="frameStyle">
+    <div ref="cameraPanel" class="camera-frame" :style="frameStyle">
       <video ref="video" :style="videoStyle" muted playsinline autoplay aria-label="Камера эксперимента" @resize="syncCameraSize"/>
       <img v-if="preview" class="photo-preview" :src="preview" alt="Подтверждение фотографии состава">
+      <div v-if="active && (preview || state?.photoHint)" class="camera-controls">
+        <template v-if="preview">
+          <button :disabled="!state?.canCapture()" @click="confirmPhoto">Подтвердить фото</button>
+          <button class="secondary" @click="discardPhoto">Переснять</button>
+        </template>
+        <button v-else class="capture-button" :disabled="!state?.camera||state?.ocrState==='running'" @click="takePhoto">Сфотографировать состав</button>
+      </div>
     </div>
     <button class="secondary rotate" :disabled="busy" @click="rotateFrame">Повернуть {{preview?'превью':'кадр'}} ↻ 90°</button>
     <p class="small">Предпросмотр и изображение, отправляемое в OCR, имеют одинаковую ориентацию. Поворот изображения не увеличивает поле зрения объектива.</p>
@@ -339,8 +346,6 @@ onBeforeUnmount(()=>{
     <button v-if="!active" :disabled="busy||!!saveError" @click="start">{{ busy?'Подготовка…':'Начать эксперимент' }}</button>
     <template v-if="active">
       <div class="actions"><button class="secondary" @click="engine?.event('composition_visible')">Состав появился в кадре</button><button class="secondary" @click="engine?.event('package_turned')">Повернул упаковку</button></div>
-      <button v-if="state?.photoHint" :disabled="!state?.camera||state?.ocrState==='running'" @click="takePhoto">Сфотографировать состав</button>
-      <div v-if="preview"><div class="actions"><button :disabled="!state?.canCapture()" @click="confirmPhoto">Подтвердить фото</button><button class="secondary" @click="discardPhoto">Переснять</button></div></div>
       <button class="secondary" @click="engine?.finish('cancelled')">Остановить запуск</button>
     </template>
     <article v-if="outcome"><h2>Результат: {{ statuses[outcome]||outcome }}</h2><p v-if="result?.sufficient">Получен пригодный состав</p>
@@ -431,6 +436,10 @@ dialog{margin:auto;inset:0;width:min(440px,calc(100vw - 24px));max-height:85dvh;
 .camera-frame{position:relative;container-type:size;aspect-ratio:var(--frame-ratio);width:min(100%,calc(68dvh * var(--frame-ratio)));max-width:100%;margin:0 auto;overflow:hidden;background:#17201d;border-radius:16px}
 .camera-frame video{position:absolute;left:50%;top:50%;max-width:none;max-height:none;display:block;object-fit:fill;transform-origin:center}
 .photo-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#17201d}
+.camera-controls{position:absolute;z-index:3;bottom:0;left:0;right:0;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:8px;padding:20px 12px max(12px, env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(12,28,22,.82))}
+.camera-controls button{margin:0;min-height:48px;max-width:100%;box-shadow:0 2px 8px #0004}
+.camera-controls .capture-button{width:100%;max-width:290px;font-weight:700}
+.camera-controls .secondary{background:#fff;color:#205740}
 img{max-width:100%;object-fit:contain}summary{cursor:pointer;padding:10px 0}
 .error{color:#ae263a;background:#fff0f1;padding:12px;border-radius:10px}pre{white-space:pre-wrap;word-break:break-word;font-size:11px;max-height:400px;overflow:auto}
 .events{max-height:300px;overflow:auto;font-size:12px;line-height:1.8;padding-left:20px}
