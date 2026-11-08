@@ -323,7 +323,7 @@ async function exportData(id?:string,excluded=false){
   download(data,'toxicheck-orchestration-'+(id||'series')+'.json');
 }
 function ms(value:unknown){return typeof value==='number'&&Number.isFinite(value)?(value/1000).toFixed(2)+' с':'Не измерено';}
-type Aggregate={key:string;mode:Mode;protocol:string;n:number;success:number;p50:number|null;p95:number|null;ocr_calls:number;api_calls:number;shared_process_cpu_per_run_ms:number|null;shared_process_cpu_per_success_ms:number|null;shared_process_rss_peak_bytes:number|null};
+type Aggregate={key:string;mode:Mode;protocol:string;n:number;success:number;p50:number|null;p95:number|null;ocr_calls:number;api_calls:number;shared_process_cpu_per_run_ms:number|null;shared_process_cpu_per_success_ms:number|null;shared_process_rss_peak_bytes:number|null;quality_reviewed:number;quality_successes:number;quality_success_rate:number|null;mean_ingredient_recall:number|null};
 const summaries=ref<Aggregate[]>([]);
 const timings=computed(()=>{
   const events=detail.value?.events??[];
