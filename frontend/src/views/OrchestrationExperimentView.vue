@@ -12,7 +12,7 @@ type Case = {id:string;product_label:string;expected_barcode:string|null;label_l
 type QualityReview={matched_indices:number[];matched_count:number;reference_count:number;ingredient_recall:number;quality_success:boolean;frame_complete:boolean|null;note:string};
 type QualityDraft={matched_indices:number[];frame_complete:boolean|null;note:string};
 type LabTask=Task&{quality_review?:QualityReview|null};
-type Run = {environment:Record<string,unknown>;excluded_from_analysis:boolean;exclusion_reason:string|null;exclusion_comment:string|null;exclusion_audit?:{id:number;action:string;reason:string;comment:string|null;created_at:string}[];id:string;case_id:string;mode:Mode;status:string;outcome:string|null;valid_result:boolean;protocol_version:string;config:Config;started_at:string;summary:{client_observations?:Record<string,unknown>};needs_review:boolean;events?:Event[];tasks?:LabTask[];case?:Case};
+type Run = {environment:Record<string,unknown>;excluded_from_analysis:boolean;exclusion_reason:string|null;exclusion_comment:string|null;exclusion_audit?:{id:number;action:string;reason:string;comment:string|null;created_at:string}[];id:string;case_id:string;mode:Mode;status:string;outcome:string|null;valid_result:boolean;protocol_version:string;config:Config;started_at:string;summary:{client_observations?:Record<string,unknown>};needs_review:boolean;events?:Event[];tasks?:LabTask[];case?:Case;measured_summary?:Record<string,unknown>};
 const statuses:Record<string,string>={waiting:'Ожидание',idle:'Не запущен',running:'Выполняется',detected:'Найден',failed:'Не найден',stopped_for_photo:'Переход к фото',timeout:'Тайм-аут',error:'Ошибка',sufficient:'Состав получен',insufficient:'Недостаточно данных',valid_barcode:'Состав по штрихкоду',valid_ocr:'Состав через OCR',incomplete:'Недостаточно данных',cancelled:'Прерван оператором',technical_failure:'Техническая ошибка',finished:'Завершён',interrupted:'Прерван'};
 const labels:Record<Mode,string>={'photo_sequential':'Фото · последовательно','photo_adaptive':'Фото · адаптивно','video_sequential':'Видео · последовательно','video_parallel':'Видео · параллельно','video_adaptive':'Видео · адаптивно'};
 const authorized=ref(false),loading=ref(true),error=ref(''),saveError=ref(''),busy=ref(false),active=ref(false);
@@ -180,25 +180,40 @@ function stopCamera(){stopBarcode();stream?.getTracks().forEach(t=>t.stop());str
 function cancelTasks(kind?:string){
   for(const [id,running] of tasks)if(running&&(!kind||taskKinds.get(id)===kind))void write('/runs/'+runId.value+'/tasks/'+id+'/cancel',{}).catch(e=>{saveError.value=message(e);});
 }
+function jsonBytes(value:unknown):number{
+  // Client-side UTF-8 JSON payload estimate, not compressed wire-level traffic.
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
 async function task(kind:'lookup'|'ocr',value:string,captureMetrics:Record<string,unknown>={}):Promise<Task>{
   const id=crypto.randomUUID(),current=runId.value,start=performance.now();
   tasks.set(id,true);taskKinds.set(id,kind);
   let row:Task;
   const payload={id,...(kind==='ocr'?{image_base64:value,capture_metrics:captureMetrics}:{barcode:value})};
+  const uploadJsonBytes=jsonBytes(payload);
+  let downloadJsonBytes=0,polls=0,responses=0,acknowledged=false;
   try{
     row=await write<Task>('/runs/'+current+'/'+kind,payload);
+    acknowledged=true;downloadJsonBytes+=jsonBytes(row);responses++;
     // Durable task polling is separate from HTTP acknowledgement of the submission.
     engine?.event(kind==='ocr'?'ocr_submission_ack':'lookup_submission_ack',{task_id:id,http_status:200,submission_ms:performance.now()-start});
     for(let n=0;row.status==='running'&&n<240;n++){
       await new Promise(resolve=>setTimeout(resolve,500));
       row=await read<Task>('/runs/'+current+'/tasks/'+id);
+      downloadJsonBytes+=jsonBytes(row);responses++;polls++;
       if(destroyed)throw new Error('Страница закрыта; серверная задача сохраняет результат самостоятельно.');
     }
     if(row.status==='running')throw new Error('Серверная задача ещё работает. Проверьте историю.');
     if(current===runId.value)engine?.event(kind==='ocr'?'ocr_worker_observed':'lookup_response_observed',{
       task_id:id,http_ms:performance.now()-start,metrics:row.metrics});
     return row;
-  }finally{tasks.set(id,false);}
+  }finally{
+    if(current===runId.value)engine?.event('task_traffic',{
+      task_id:id,kind,upload_json_bytes:uploadJsonBytes,download_json_bytes:downloadJsonBytes,
+      response_count:responses,poll_requests:polls,submission_acknowledged:acknowledged,
+      measurement_quality:'utf8_json_reserialized_estimate'
+    });
+    tasks.set(id,false);
+  }
 }
 async function finished(value:Finish,taskResult?:Task){
   active.value=false;outcome.value=value.outcome;result.value=taskResult??null;
@@ -263,7 +278,9 @@ async function start(){
       if(frame)framePool.push(frame);
       if(framePool.length>=3||performance.now()-poolStarted>=750){
         if(framePool.length){
+          const selectStarted=performance.now();
           const best=framePool.reduce((a,b)=>frameScore(b.quality)>frameScore(a.quality)?b:a);
+          engine.event('frame_selection_work',{selection_ms:performance.now()-selectStarted,candidates:framePool.length});
           const metrics={...best.quality,candidates_considered:framePool.length,
             selection_score:frameScore(best.quality),selection_policy:'best_of_three_v1'};
           if(engine.submit(best.image,false,metrics))frameState.lastSent=best.fingerprint;
@@ -323,7 +340,10 @@ async function exportData(id?:string,excluded=false){
   download(data,'toxicheck-orchestration-'+(id||'series')+'.json');
 }
 function ms(value:unknown){return typeof value==='number'&&Number.isFinite(value)?(value/1000).toFixed(2)+' с':'Не измерено';}
-type Aggregate={key:string;mode:Mode;protocol:string;n:number;success:number;p50:number|null;p95:number|null;ocr_calls:number;api_calls:number;shared_process_cpu_per_run_ms:number|null;shared_process_cpu_per_success_ms:number|null;shared_process_rss_peak_bytes:number|null;quality_reviewed:number;quality_successes:number;quality_success_rate:number|null;mean_ingredient_recall:number|null};
+function cpu(value:unknown){return typeof value==='number'&&Number.isFinite(value)?value.toFixed(0)+' мс':'Не измерено';}
+function sizeKb(value:unknown){return typeof value==='number'&&Number.isFinite(value)?(value/1024).toFixed(1)+' КиБ':'Не измерено';}
+function sizeMb(value:unknown){return typeof value==='number'&&Number.isFinite(value)?(value/1048576).toFixed(1)+' МиБ':'Не измерено';}
+type Aggregate={key:string;mode:Mode;protocol:string;n:number;success:number;p50:number|null;p95:number|null;ocr_calls:number;api_calls:number;shared_process_cpu_per_run_ms:number|null;shared_process_cpu_per_success_ms:number|null;shared_process_rss_peak_bytes:number|null;quality_reviewed:number;quality_successes:number;quality_success_rate:number|null;mean_ingredient_recall:number|null;ocr_cpu_per_run_ms:number|null;ocr_cpu_per_complete_scan_ms:number|null;transfer_per_run_bytes:number|null;bytes_per_complete_scan:number|null;tesseract_child_rss_peak_bytes:number|null;ocr_process_tree_rss_peak_bytes:number|null};
 const summaries=ref<Aggregate[]>([]);
 const timings=computed(()=>{
   const events=detail.value?.events??[];
@@ -478,7 +498,10 @@ onBeforeUnmount(()=>{
     <p class="small">Сводка всей выборки (до 1000 запусков), по режиму, версии, устройству и одинаковым настройкам. E2E — только успешные; успехи — от всех неисключённых запусков, включая прерванные. Показ исключённых в истории не включает их в расчёт.</p>
     <article v-for="s in summaries" :key="s.key"><strong>{{labels[s.mode]}} · {{s.protocol}}</strong><p>Успешно {{s.success}} / {{s.n}} ({{Math.round(s.success/s.n*100)}}%)</p><p>p50 {{ms(s.p50)}} · p95 {{ms(s.p95)}}</p><p>OCR {{s.ocr_calls}} · API {{s.api_calls}}</p>
       <p class="small">Проверка состава: {{s.quality_reviewed??0}} · качественных {{s.quality_successes??0}} · доля {{s.quality_success_rate==null?'нет оценок':Math.round(s.quality_success_rate*100)+'%'}}</p>
-      <p class="small">Оценка CPU общего процесса на запуск: {{ms(s.shared_process_cpu_per_run_ms)}}; на успешный: {{ms(s.shared_process_cpu_per_success_ms)}}. Это не точные затраты OCR.</p></article>
+      <p class="small">CPU обработки (Python + дочерний процесс, оценка): {{cpu(s.ocr_cpu_per_run_ms)}} на запуск · {{cpu(s.ocr_cpu_per_complete_scan_ms)}} на подтверждённый полный результат.</p>
+      <p class="small">Пик памяти Tesseract: {{sizeMb(s.tesseract_child_rss_peak_bytes)}} · Python + Tesseract: {{sizeMb(s.ocr_process_tree_rss_peak_bytes)}}.</p>
+      <p class="small">JSON-трафик OCR + lookup: {{sizeKb(s.transfer_per_run_bytes)}} на запуск · {{sizeKb(s.bytes_per_complete_scan)}} на полный результат. Трафик оценочный: без TLS, сжатия и служебных запросов стенда.</p>
+      <p class="small">CPU общего процесса (старый диагностический показатель): {{cpu(s.shared_process_cpu_per_run_ms)}}.</p></article>
     </details>
     <article v-for="r in history" :key="r.id" :class="{excluded:r.excluded_from_analysis}"><p v-if="r.excluded_from_analysis" class="badge">Исключён: {{reasons[r.exclusion_reason||'']}}</p><strong>{{ labels[r.mode] }}</strong><p>{{new Date(r.started_at).toLocaleString()}} · {{statuses[r.outcome||r.status]||r.outcome||r.status}}</p><p class="small">{{r.id}}</p>
       <div class="actions"><button @click="safely(()=>openRun(r.id))">Подробнее</button><button class="secondary" @click="safely(()=>exportData(r.id,r.excluded_from_analysis))">JSON</button><button class="secondary" :disabled="r.status==='running'" @click="askExclusion(r)">{{r.excluded_from_analysis?'Вернуть в анализ':'Исключить из анализа'}}</button><button class="danger" :disabled="r.status==='running'||(runId===r.id&&(outbox.length>0||!!pendingFinish||flushing))" @click="askDeletion(r)">Удалить</button></div></article>
@@ -497,9 +520,16 @@ onBeforeUnmount(()=>{
       <label><input type="checkbox" :checked="detail.needs_review" @change="safely(async()=>{await write('/runs/'+detail!.id+'/review',{needs_review:!detail!.needs_review},'PUT');await openRun(detail!.id);})"> Требуется проверка состава</label>
       <div v-for="t in timings" :key="t.label" class="timing"><span>{{t.label}}</span><strong>{{ms(t.value)}}</strong><meter v-if="typeof t.value==='number'" :value="t.value" :max="detail.config.runMaxMs"/></div>
       <p>OCR: {{detail.tasks?.filter(t=>t.kind==='ocr').length}} · lookup: {{detail.tasks?.filter(t=>t.kind==='lookup').length}}</p>
+      <div v-if="detail.measured_summary" class="small">
+        <p><strong>Трафик запросов OCR + lookup:</strong> {{sizeKb(detail.measured_summary.total_transfer_bytes)}} · OCR отправка {{sizeKb(detail.measured_summary.ocr_upload_bytes)}} / получение {{sizeKb(detail.measured_summary.ocr_download_bytes)}}.</p>
+        <p>Штрихкод отправка {{sizeKb(detail.measured_summary.lookup_upload_bytes)}} / получение {{sizeKb(detail.measured_summary.lookup_download_bytes)}} · JPEG {{sizeKb(detail.measured_summary.ocr_image_bytes)}}.</p>
+        <p>Обработка кадров на клиенте: {{cpu(detail.measured_summary.client_capture_processing_ms)}} · выбор лучшего кадра: {{cpu(detail.measured_summary.client_frame_selection_ms)}}. Это время работы JS, а не точное CPU устройства.</p>
+      </div>
       <section v-for="t in detail.tasks" :key="t.id" class="task"><h3>{{t.kind}} · {{t.status}}</h3><p class="small">{{t.id}}</p>
         <p>Сервер: {{ms(t.metrics.server_elapsed_ms)}} · OCR worker: {{ms(t.metrics.ocr_worker_ms)}}</p>
-        <p v-if="t.kind==='ocr'">CPU общего процесса: {{ms(t.metrics.shared_process_cpu_delta_ms)}}. Дочерний Tesseract сюда не включён.</p>
+        <p v-if="t.kind==='ocr'">CPU Python-потока: {{cpu(t.metrics.ocr_python_thread_cpu_ms)}} · CPU дочернего Tesseract (оценка): {{cpu(t.metrics.tesseract_child_cpu_time_ms)}} · всего: {{cpu(t.metrics.ocr_cpu_time_ms)}}.</p>
+        <p v-if="t.kind==='ocr'">Пик RAM Tesseract (наблюдаемый): {{sizeMb(t.metrics.tesseract_child_rss_peak_bytes)}} · Python + Tesseract: {{sizeMb(t.metrics.ocr_process_tree_rss_peak_bytes)}}.</p>
+        <p v-if="t.kind==='ocr'" class="small">Измерение CPU дочерних процессов разделяется с другими процессами, запущенными API. Пики RAM получены периодическим опросом.</p>
         <p v-if="t.kind==='ocr'">RSS общего процесса (наблюдаемый пик): {{typeof t.metrics.shared_process_rss_peak_bytes==='number'?(t.metrics.shared_process_rss_peak_bytes/1048576).toFixed(1)+' МБ':'Не измерено'}}</p>
         <p>HTTP внешнего API: {{t.metrics.http_status??'—'}} · качество измерения: {{t.metrics.measurement_quality??'not_measured'}}</p>
         <p v-if="t.kind==='ocr'&&t.metrics.capture" class="small">Отбор кадра: {{JSON.stringify(t.metrics.capture)}}</p>
