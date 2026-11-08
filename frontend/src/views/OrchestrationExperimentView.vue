@@ -343,7 +343,7 @@ function ms(value:unknown){return typeof value==='number'&&Number.isFinite(value
 function cpu(value:unknown){return typeof value==='number'&&Number.isFinite(value)?value.toFixed(0)+' мс':'Не измерено';}
 function sizeKb(value:unknown){return typeof value==='number'&&Number.isFinite(value)?(value/1024).toFixed(1)+' КиБ':'Не измерено';}
 function sizeMb(value:unknown){return typeof value==='number'&&Number.isFinite(value)?(value/1048576).toFixed(1)+' МиБ':'Не измерено';}
-type Aggregate={key:string;mode:Mode;protocol:string;n:number;success:number;p50:number|null;p95:number|null;ocr_calls:number;api_calls:number;shared_process_cpu_per_run_ms:number|null;shared_process_cpu_per_success_ms:number|null;shared_process_rss_peak_bytes:number|null;quality_reviewed:number;quality_successes:number;quality_success_rate:number|null;mean_ingredient_recall:number|null;ocr_cpu_per_run_ms:number|null;ocr_cpu_per_complete_scan_ms:number|null;transfer_per_run_bytes:number|null;bytes_per_complete_scan:number|null;tesseract_child_rss_peak_bytes:number|null;ocr_process_tree_rss_peak_bytes:number|null};
+type Aggregate={key:string;mode:Mode;protocol:string;n:number;success:number;p50:number|null;p95:number|null;ocr_calls:number;api_calls:number;shared_process_cpu_per_run_ms:number|null;shared_process_cpu_per_success_ms:number|null;shared_process_rss_peak_bytes:number|null;quality_reviewed:number;quality_successes:number;quality_success_rate:number|null;mean_ingredient_recall:number|null;ocr_cpu_per_run_ms:number|null;ocr_cpu_per_complete_scan_ms:number|null;transfer_per_run_bytes:number|null;bytes_per_complete_scan:number|null;tesseract_child_rss_peak_bytes:number|null;ocr_process_tree_rss_peak_bytes:number|null;frame_reviewed:number;complete_frames:number;frame_completeness_rate:number|null};
 const summaries=ref<Aggregate[]>([]);
 const timings=computed(()=>{
   const events=detail.value?.events??[];
@@ -497,7 +497,8 @@ onBeforeUnmount(()=>{
     <details><summary>Сводка по режимам</summary>
     <p class="small">Сводка всей выборки (до 1000 запусков), по режиму, версии, устройству и одинаковым настройкам. E2E — только успешные; успехи — от всех неисключённых запусков, включая прерванные. Показ исключённых в истории не включает их в расчёт.</p>
     <article v-for="s in summaries" :key="s.key"><strong>{{labels[s.mode]}} · {{s.protocol}}</strong><p>Успешно {{s.success}} / {{s.n}} ({{Math.round(s.success/s.n*100)}}%)</p><p>p50 {{ms(s.p50)}} · p95 {{ms(s.p95)}}</p><p>OCR {{s.ocr_calls}} · API {{s.api_calls}}</p>
-      <p class="small">Проверка состава: {{s.quality_reviewed??0}} · качественных {{s.quality_successes??0}} · доля {{s.quality_success_rate==null?'нет оценок':Math.round(s.quality_success_rate*100)+'%'}}</p>
+      <p class="small"><strong>Полнота изображений:</strong> {{s.complete_frames??0}} / {{s.frame_reviewed??0}} · FCR {{s.frame_completeness_rate==null?'нет оценок':Math.round(s.frame_completeness_rate*100)+'%'}}</p>
+      <p class="small">Оценка OCR (вспомогательная, не качество захвата): {{s.quality_reviewed??0}} · качество {{s.quality_successes??0}}.</p>
       <p class="small">CPU обработки (Python + дочерний процесс, оценка): {{cpu(s.ocr_cpu_per_run_ms)}} на запуск · {{cpu(s.ocr_cpu_per_complete_scan_ms)}} на подтверждённый полный результат.</p>
       <p class="small">Пик памяти Tesseract: {{sizeMb(s.tesseract_child_rss_peak_bytes)}} · Python + Tesseract: {{sizeMb(s.ocr_process_tree_rss_peak_bytes)}}.</p>
       <p class="small">JSON-трафик OCR + lookup: {{sizeKb(s.transfer_per_run_bytes)}} на запуск · {{sizeKb(s.bytes_per_complete_scan)}} на полный результат. Трафик оценочный: без TLS, сжатия и служебных запросов стенда.</p>
