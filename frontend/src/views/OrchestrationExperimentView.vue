@@ -4,7 +4,7 @@ import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser'
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { refreshSession } from '@/services/userSession';
 import { Orchestrator, defaults, modes, realClock, validateConfig, type Mode, type Config, type Event, type Task, type Finish } from '@/research/orchestration/engine';
-import { capture, resetFrames, photoImage, quarterTurn, type FrameState } from '@/research/orchestration/capture';
+import { capture, resetFrames, photoImage, previewRotation, rotatedSize, quarterTurn, type FrameState } from '@/research/orchestration/capture';
 import { read, write, download } from '@/research/orchestration/api';
 
 type Case = {id:string;product_label:string;expected_barcode:string|null;label_layout:string};
@@ -19,10 +19,28 @@ const tabs=[{id:'settings',label:'Настройки'},{id:'camera',label:'Ка�
 const tab=ref<'settings'|'camera'|'history'>('settings');
 const orientation=ref<'auto'|'portrait'|'landscape'>('auto'),deviceLandscape=ref(false),angle=ref(0);
 const cameraLayout=computed(()=>orientation.value==='auto'?(deviceLandscape.value?'landscape':'portrait'):orientation.value);
+const cameraSize=ref({width:1080,height:1920});
+const effectiveRotation=computed(()=>previewRotation(cameraSize.value.width,cameraSize.value.height,cameraLayout.value,angle.value));
+const previewDimensions=computed(()=>rotatedSize(cameraSize.value.width,cameraSize.value.height,effectiveRotation.value));
+const previewRatio=computed(()=>previewDimensions.value.width/previewDimensions.value.height);
+const frameStyle=computed(()=>({'--frame-ratio':String(previewRatio.value)}));
+const videoStyle=computed(()=>({
+  width:effectiveRotation.value%180?'100cqh':'100%',
+  height:effectiveRotation.value%180?'100cqw':'100%',
+  transform:`translate(-50%, -50%) rotate(${effectiveRotation.value}deg)`
+}));
 let originalPhoto:HTMLCanvasElement|null=null;
+function syncCameraSize(){
+  if(video.value?.videoWidth&&video.value?.videoHeight){
+    cameraSize.value={width:video.value.videoWidth,height:video.value.videoHeight};
+  }
+}
+function updatePhotoRotation(){
+  if(preview.value&&originalPhoto)preview.value=photoImage(originalPhoto,effectiveRotation.value);
+}
 function orientationChanged(source='selection'){
-  resetFrames(frameState);
-  if(active.value)engine?.event('orientation_selected',{orientation:orientation.value,layout:cameraLayout.value,angle:angle.value,source});
+  resetFrames(frameState);updatePhotoRotation();
+  if(active.value)engine?.event('orientation_selected',{orientation:orientation.value,layout:cameraLayout.value,angle:angle.value,effective_angle:effectiveRotation.value,source});
 }
 function deviceRotated(){
   const next=window.matchMedia('(orientation: landscape)').matches;
@@ -30,12 +48,9 @@ function deviceRotated(){
   deviceLandscape.value=next;orientationChanged('device');
 }
 function rotateFrame(){
-  angle.value=quarterTurn(angle.value+90);resetFrames(frameState);
-  if(active.value)engine?.event('frame_rotation_changed',{angle:angle.value});
-  if(preview.value&&originalPhoto){
-    preview.value=photoImage(originalPhoto,angle.value);
-    if(active.value)engine?.event('preview_rotation_changed',{angle:angle.value});
-  }
+  angle.value=quarterTurn(angle.value+90);resetFrames(frameState);updatePhotoRotation();
+  if(active.value)engine?.event('frame_rotation_changed',{angle:angle.value,effective_angle:effectiveRotation.value});
+  if(preview.value&&originalPhoto&&active.value)engine?.event('preview_rotation_changed',{angle:effectiveRotation.value});
 }
 function discardPhoto(){preview.value='';originalPhoto=null;}
 const exclusionStatus=ref('active'),includeExcluded=ref(false),nTotal=ref(0),nExcluded=ref(0);
@@ -165,7 +180,7 @@ async function start(){
     stream=ready.stream;
     await nextTick();
     if(!video.value)throw new Error('Не удалось открыть просмотр камеры.');
-    video.value.srcObject=stream;await video.value.play();engine.ready();
+    video.value.srcObject=stream;await video.value.play();syncCameraSize();engine.ready();
     const settings=stream.getVideoTracks()[0]?.getSettings();
     engine.event('camera_settings',{width:settings?.width,height:settings?.height,frame_rate:settings?.frameRate,facing_mode:settings?.facingMode});
     cameraPanel.value?.scrollIntoView({block:'start',behavior:'smooth'});
@@ -179,7 +194,7 @@ async function start(){
     frameTimer=setInterval(()=>{
       if(!engine||engine.done||!isVideo.value||!engine.canCapture()||!video.value)return;
       engine.event('frame_considered');
-      const frame=capture(video.value,frameState,true,angle.value);
+      const frame=capture(video.value,frameState,true,effectiveRotation.value);
       if(frame&&engine.submit(frame.image)){frameState.lastSent=frame.fingerprint;}
     },config.value.frameMinIntervalMs);
   }catch(e){
@@ -191,7 +206,7 @@ async function start(){
 function takePhoto(){
   if(!engine||!video.value)return;
   engine.selectPhoto();
-  const frame=capture(video.value,frameState,false,angle.value);
+  const frame=capture(video.value,frameState,false,effectiveRotation.value);
   if(frame){originalPhoto=frame.original;preview.value=frame.image;}else error.value='Дождитесь изображения камеры и попробуйте снова.';
 }
 function confirmPhoto(){if(preview.value&&engine?.submit(preview.value,true))discardPhoto();}
@@ -312,14 +327,14 @@ onBeforeUnmount(()=>{
     <p v-if="active" class="small">Во время запуска вкладка камеры остаётся открытой, чтобы браузер не приостанавливал скрытое видео.</p>
     <p class="small">{{labels[mode]}} · {{cases.find(c=>c.id===selectedCase)?.product_label||'Выберите товар в настройках'}}</p>
     <p ref="cameraPanel" class="instruction">{{ isVideo?videoInstruction:'Покажите штрихкод. Если данных недостаточно, понадобится фотография состава. При разных сторонах упаковки поверните товар к составу.' }}</p>
-    <label>Ориентация области камеры<select v-model="orientation" :disabled="busy" @change="orientationChanged()"><option value="auto">По положению устройства</option><option value="portrait">Вертикальная</option><option value="landscape">Горизонтальная</option></select></label>
-    <p class="small">Если состав напечатан горизонтально, поверните телефон или измените ориентацию кадра, чтобы текст целиком поместился в область камеры. Область просмотра не расширяет поле зрения объектива.</p>
-    <div class="camera-frame">
-      <video ref="video" :class="cameraLayout" muted playsinline autoplay aria-label="Камера эксперимента"/>
+    <label>Ориентация предпросмотра<select v-model="orientation" :disabled="busy" @change="orientationChanged()"><option value="auto">По положению устройства</option><option value="portrait">Вертикальная</option><option value="landscape">Горизонтальная</option></select></label>
+    <p class="small">Поворачивайте телефон, чтобы длинный состав поместился в кадр. Кнопка ниже сразу поворачивает живую картинку и одновременно кадр для OCR.</p>
+    <div class="camera-frame" :style="frameStyle">
+      <video ref="video" :style="videoStyle" muted playsinline autoplay aria-label="Камера эксперимента" @resize="syncCameraSize"/>
       <img v-if="preview" class="photo-preview" :src="preview" alt="Подтверждение фотографии состава">
     </div>
-    <button class="secondary rotate" :disabled="busy" @click="rotateFrame">Повернуть {{preview?'превью':'кадр'}} ↻ 90° · {{angle}}°</button>
-    <p class="small">Угол применяется к изображению для OCR. Живой поток камеры остаётся в исходной ориентации.</p>
+    <button class="secondary rotate" :disabled="busy" @click="rotateFrame">Повернуть {{preview?'фото':'камеру'}} ↻ 90°</button>
+    <p class="small">Предпросмотр и изображение, отправляемое в OCR, имеют одинаковую ориентацию. Поворот изображения не увеличивает поле зрения объектива.</p>
     <p v-if="state" role="status">Штрихкод: {{ statuses[state.barcodeState]||state.barcodeState }} · lookup: {{ statuses[state.lookupState]||state.lookupState }} · OCR: {{ statuses[state.ocrState]||state.ocrState }}</p>
     <button v-if="!active" :disabled="busy||!!saveError" @click="start">{{ busy?'Подготовка…':'Начать эксперимент' }}</button>
     <template v-if="active">
@@ -412,9 +427,11 @@ input[type=checkbox]{width:20px;height:20px}button{padding:12px 14px;background:
 button:disabled{opacity:.45;cursor:default}.secondary{background:#edf4f0;color:#205740}
 .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.actions>*{min-width:0}
 .tabs{display:flex;gap:6px;position:sticky;top:0;background:#f5f8f6;padding:8px 0;z-index:2}.tabs button{flex:1;background:#e7efeb;color:#315447}.tabs button[aria-selected=true]{background:#187f5d;color:white}
-dialog{margin:auto;inset:0;width:min(440px,calc(100vw - 24px));max-height:85dvh;overflow:auto;border:1px solid #cadbd2;border-radius:18px;padding:20px;color:inherit}dialog::backdrop{background:#10271c99}.excluded{border-style:dashed;background:#f5f5f3}.badge{font-size:13px;color:#805b14}.rotate{width:100%}.camera-frame{position:relative}.camera-frame video{display:block}.photo-preview{position:absolute;inset:0;width:100%;height:100%;border-radius:16px;background:#17201d}video.portrait{aspect-ratio:3/4}video.landscape{aspect-ratio:4/3}
-video{width:100%;max-height:45dvh;background:#17201d;border-radius:16px;object-fit:contain}
-img{max-width:100%;max-height:45dvh;object-fit:contain}summary{cursor:pointer;padding:10px 0}
+dialog{margin:auto;inset:0;width:min(440px,calc(100vw - 24px));max-height:85dvh;overflow:auto;border:1px solid #cadbd2;border-radius:18px;padding:20px;color:inherit}dialog::backdrop{background:#10271c99}.excluded{border-style:dashed;background:#f5f5f3}.badge{font-size:13px;color:#805b14}.rotate{width:100%}
+.camera-frame{position:relative;container-type:size;aspect-ratio:var(--frame-ratio);width:min(100%,calc(68dvh * var(--frame-ratio)));max-width:100%;margin:0 auto;overflow:hidden;background:#17201d;border-radius:16px}
+.camera-frame video{position:absolute;left:50%;top:50%;max-width:none;max-height:none;display:block;object-fit:fill;transform-origin:center}
+.photo-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#17201d}
+img{max-width:100%;object-fit:contain}summary{cursor:pointer;padding:10px 0}
 .error{color:#ae263a;background:#fff0f1;padding:12px;border-radius:10px}pre{white-space:pre-wrap;word-break:break-word;font-size:11px;max-height:400px;overflow:auto}
 .events{max-height:300px;overflow:auto;font-size:12px;line-height:1.8;padding-left:20px}
 .task{border-top:1px solid #dce5e0;padding:12px 0;font-size:13px}.timing{display:grid;grid-template-columns:1fr auto;gap:8px;font-size:12px;margin:12px 0}.timing meter{width:100%;grid-column:1/-1}
