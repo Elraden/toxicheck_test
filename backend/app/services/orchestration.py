@@ -140,12 +140,13 @@ async def perform(task_id, run_id, kind, value, lookup_ms):
                 await db.execute(text("""UPDATE orchestration_lab.ocr_tasks SET
                     status=:status,result=CAST(:result AS jsonb),sufficient=:ok,
                     worker_started_at=:ws,worker_finished_at=:we,metrics=metrics || CAST(:metrics AS jsonb),
-                    measurement_quality=:quality,rss_peak_bytes=:rss,
+                    measurement_quality=:quality,cpu_time_ms=:cpu,rss_peak_bytes=:rss,
                     cancellation=cancellation || CAST(:cancel AS jsonb)
                     WHERE id=:id"""),
                     dict(id=task_id,status='failed' if result.get('status')=='error' else 'finished',
                          result=encoded(result),ok=ok,ws=worker_start,we=worker_end,metrics=encoded(metrics),
                          quality=metrics.get('measurement_quality','not_measured'),
+                         cpu=metrics.get('ocr_cpu_time_ms'),
                          rss=metrics.get('ocr_process_tree_rss_peak_bytes') or metrics.get('shared_process_rss_peak_bytes'),
                          cancel=encoded({'worker_stopped':worker_end is not None,'cancellation_effective':False})))
                 await server_event(db, run_id, ('ocr_worker_finished' if worker_end is not None else 'ocr_request_finished') if kind=='ocr' else 'lookup_http_finished',
@@ -211,7 +212,8 @@ def measured_summary(run, tasks, events):
     traffic=[e['details'] for e in browser if e['event_name']=='task_traffic']
     traffic_complete=len(traffic)==len(tasks) and all(
         isinstance(t.get(k),(int,float)) and t[k]>=0
-        for t in traffic for k in ('upload_json_bytes','download_json_bytes'))
+        for t in traffic for k in ('upload_json_bytes','download_json_bytes')) and all(
+        t.get('submission_acknowledged') is True for t in traffic)
     def transfer(kind,key):
         return sum(t[key] for t in traffic if t.get('kind')==kind) if traffic_complete else None
     upload=sum(t['upload_json_bytes'] for t in traffic) if traffic_complete else None
@@ -241,6 +243,7 @@ def measured_summary(run, tasks, events):
         ocr_image_bytes=sum(t['metrics'].get('input_bytes',0) for t in ocr) if ocr and
             all(isinstance(t['metrics'].get('input_bytes'),int) for t in ocr) else None,
         quality_reviewed=reviewed,
+        frame_complete=review.get('frame_complete') if reviewed else None,
         ingredient_recall=review.get('ingredient_recall') if reviewed else None,
         quality_success=review.get('quality_success') if reviewed else None,
         ocr_worker_ms=complete_sum('ocr_worker_ms'),
@@ -283,7 +286,9 @@ def aggregate(runs):
         image_bytes=[s.get('ocr_image_bytes') for s in summaries]
         image_complete=all(isinstance(v,(int,float)) or s['ocr_calls']==0 for v,s in zip(image_bytes,summaries))
         image_total=sum(v or 0 for v in image_bytes) if image_complete else None
-        full_scans=sum(s.get('quality_reviewed') and s.get('quality_success') is True for s in summaries)
+        reviewed_frames=all(s.get('frame_complete') is not None or s['ocr_calls']==0 for s in summaries)
+        full_scans=sum(s.get('frame_complete') is True for s in summaries)
+        frame_reviews=sum(s.get('frame_complete') is not None for s in summaries)
         complete=all(v is not None or s['ocr_calls']==0 for v,s in zip(values,summaries))
         cpu=sum(v or 0 for v in values) if complete else None
         peaks=[s['shared_process_rss_peak_bytes'] for s in summaries if s['shared_process_rss_peak_bytes'] is not None]
@@ -294,6 +299,8 @@ def aggregate(runs):
         result.append(dict(key=hashlib.sha256(key.encode()).hexdigest(),mode=rows[0]['mode'],protocol=rows[0]['protocol_version'],
             config=rows[0]['config'],environment={k:v for k,v in rows[0]['environment'].items() if k!='started_at_utc'},
             n=len(rows),success=success,success_rate=success/len(rows),running=sum(r['status']=='running' for r in rows),
+            frame_reviewed=frame_reviews,complete_frames=full_scans,
+            frame_completeness_rate=full_scans/frame_reviews if frame_reviews else None,
             quality_reviewed=quality_reviewed,quality_successes=quality_successes,
             quality_success_rate=quality_successes/quality_reviewed if quality_reviewed else None,
             mean_ingredient_recall=sum(quality_recalls)/len(quality_recalls) if quality_recalls else None,
@@ -301,10 +308,10 @@ def aggregate(runs):
             p95=times[max(0,math.ceil(len(times)*.95)-1)] if times else None,
             timed_successes=len(times),ocr_calls=sum(s['ocr_calls'] for s in summaries),
             ocr_cpu_per_run_ms=child_total/len(rows) if child_total is not None else None,
-            ocr_cpu_per_complete_scan_ms=child_total/full_scans if child_total is not None and full_scans else None,
+            ocr_cpu_per_complete_scan_ms=child_total/full_scans if child_total is not None and full_scans and reviewed_frames else None,
             total_transfer_bytes=transfer_total,
             transfer_per_run_bytes=transfer_total/len(rows) if transfer_total is not None else None,
-            bytes_per_complete_scan=transfer_total/full_scans if transfer_total is not None and full_scans else None,
+            bytes_per_complete_scan=transfer_total/full_scans if transfer_total is not None and full_scans and reviewed_frames else None,
             ocr_image_bytes=image_total,
             api_calls=sum(s['api_calls'] for s in summaries),ocr_cpu_time_ms=child_total,
             shared_process_cpu_per_run_ms=cpu/len(rows) if cpu is not None else None,
