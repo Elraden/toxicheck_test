@@ -173,7 +173,7 @@ async def perform(task_id, run_id, kind, value, lookup_ms):
                          quality=metrics.get('measurement_quality','not_measured'),
                          rss=metrics.get('shared_process_rss_peak_bytes'),
                          cancel=encoded({'worker_stopped':worker_end is not None,'cancellation_effective':False})))
-                await server_event(db, run_id, 'ocr_worker_finished' if kind=='ocr' else 'lookup_http_finished',
+                await server_event(db, run_id, ('ocr_worker_finished' if worker_end is not None else 'ocr_request_finished') if kind=='ocr' else 'lookup_http_finished',
                     {'task_id':str(task_id),'sufficient_result':ok,**metrics})
         # Retries concern persistence only. Never run OCR/OFF twice on a DB retry.
         for attempt in range(3):

@@ -216,3 +216,19 @@ class LabDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(group['p50'])
         self.assertIsNone(group['ocr_cpu_time_ms'])
         self.assertEqual(group['shared_process_cpu_per_run_ms'],1)
+
+
+    async def test_unavailable_ocr_does_not_claim_worker_completion(self):
+        from app.services import orchestration as lab
+        tid=uuid4()
+        await self.conn.execute("INSERT INTO orchestration_lab.ocr_tasks(id,run_id,kind,status,input_sha256) VALUES($1,$2,'ocr','running','test')",tid,UUID(self.id))
+        with patch.object(lab.MeasuredOCR,'recognize_image',new=AsyncMock(return_value=OcrResult(status='ocr_unavailable'))):
+            await lab.perform(tid,UUID(self.id),'ocr',base64.b64encode(b'x').decode(),8000)
+        r=await self.client.get(f'/runs/{self.id}')
+        self.assertEqual(r.status_code,200,r.text)
+        data=r.json()
+        names=[e['event_name'] for e in data['events']]
+        self.assertIn('ocr_request_finished',names)
+        self.assertNotIn('ocr_worker_finished',names)
+        self.assertIsNone(data['tasks'][0]['worker_finished_at'])
+        self.assertIsNone(data['measured_summary']['ocr_worker_ms'])
