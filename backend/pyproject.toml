@@ -24,6 +24,7 @@ ocr = [
   "opencv-python-headless>=4.10.0.84",
   "Pillow>=10.4.0",
   "pytesseract>=0.3.13",
+  "psutil>=6.1,<9",
   "python-Levenshtein>=0.26.0"
 ]
 
