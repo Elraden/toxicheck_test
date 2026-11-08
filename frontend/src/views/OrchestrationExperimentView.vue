@@ -50,7 +50,7 @@ function deviceRotated(){
 function rotateFrame(){
   angle.value=quarterTurn(angle.value+90);resetFrames(frameState);updatePhotoRotation();
   if(active.value)engine?.event('frame_rotation_changed',{angle:angle.value,effective_angle:effectiveRotation.value});
-  if(preview.value&&originalPhoto&&active.value)engine?.event('preview_rotation_changed',{angle:effectiveRotation.value});
+  if(preview.value&&originalPhoto&&active.value)engine?.event('preview_rotation_changed',{angle:angle.value,effective_angle:effectiveRotation.value});
 }
 function discardPhoto(){preview.value='';originalPhoto=null;}
 const exclusionStatus=ref('active'),includeExcluded=ref(false),nTotal=ref(0),nExcluded=ref(0);
