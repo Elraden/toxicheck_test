@@ -207,6 +207,25 @@ async def exclusion(run_id:UUID,payload:ExclusionInput,actor:Principal=Depends(a
             dict(id=run_id,excluded=payload.excluded,reason=payload.reason if payload.excluded else None,
                  comment=payload.comment if payload.excluded else None,actor=actor.user.id if payload.excluded else None))).mappings().one())
 
+@router.delete('/runs/{run_id}')
+async def delete_run(run_id:UUID,actor:Principal=Depends(admin_write)):
+    """Permanently erase one completed experiment and all of its dependent data."""
+    await throttle('lab:delete:'+str(actor.user.id),20,60)
+    async with AnnotationSessionLocal() as db,db.begin():
+        run=await owned(db,run_id,actor,True)
+        # A worker may still be running after the browser records a timeout.
+        pending=await db.scalar(text("""SELECT EXISTS(
+            SELECT 1 FROM orchestration_lab.ocr_tasks
+            WHERE run_id=:id AND status='running')"""),dict(id=run_id))
+        if run['status']=='running' or pending:
+            raise HTTPException(409,'Дождитесь завершения запуска и всех серверных задач.')
+        # Tasks and exclusion audit do not have ON DELETE CASCADE; events do.
+        await db.execute(text('DELETE FROM orchestration_lab.exclusion_audit WHERE run_id=:id'),dict(id=run_id))
+        await db.execute(text('DELETE FROM orchestration_lab.ocr_tasks WHERE run_id=:id'),dict(id=run_id))
+        await db.execute(text('DELETE FROM orchestration_lab.runs WHERE id=:id AND created_by=:owner'),
+                         dict(id=run_id,owner=actor.user.id))
+    return {'deleted':True,'id':run_id}
+
 async def detail(db,id,actor):
     run=dict(await owned(db,id,actor))
     run['events']=[dict(x) for x in (await db.execute(text('SELECT * FROM orchestration_lab.events WHERE run_id=:id ORDER BY source,seq'),dict(id=id))).mappings()]
