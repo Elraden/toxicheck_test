@@ -151,6 +151,7 @@ let destroyed=false,generation=0;
 const tasks=new Map<string,boolean>();
 const taskKinds=new Map<string,string>();
 const state=computed(()=>{void version.value;return engine;});
+const detailReference=computed(()=>Array.isArray(detail.value?.environment?.reference_ingredients)?detail.value.environment.reference_ingredients as string[]:[]);
 const isVideo=computed(()=>mode.value.startsWith('video'));
 const videoInstruction='Покажите камере штрихкод и текст состава. Если они расположены на разных сторонах упаковки, поверните товар и наведите камеру на состав. Снимок делается автоматически.';
 const key='toxicheck-orchestration-pending-v3';
@@ -374,7 +375,7 @@ onBeforeUnmount(()=>{
   <p v-if="loading">Проверяем доступ…</p>
   <p v-else-if="!authorized">Требуется <RouterLink :to="{name:'admin'}">вход администратора</RouterLink>.</p>
   <template v-else>
-    <p class="notice">Пилот v3: пригодность ответа не означает подтверждённую точность состава. Сравнивайте один товар в разных режимах, чередуя их порядок.</p>
+    <p class="notice">Пилот v3.1: пригодность ответа не означает подтверждённую точность состава. Сравнивайте один товар в разных режимах, чередуя их порядок.</p>
     <p v-if="saveError" class="error" role="alert">{{ saveError }} <button @click="flush">Повторить сохранение</button></p>
     <nav class="tabs" role="tablist" aria-label="Разделы стенда">
       <button v-for="(t,i) in tabs" :id="'lab-tab-'+t.id" :key="t.id" :disabled="(active||busy)&&t.id!=='camera'" role="tab" :aria-controls="'lab-panel-'+t.id" :aria-selected="tab===t.id" :tabindex="tab===t.id?0:-1" @click="changeTab(t.id)" @keydown="tabKey($event,i)">{{t.label}}<span v-if="t.id==='camera'&&active"> ●</span></button>
@@ -387,7 +388,14 @@ onBeforeUnmount(()=>{
         <label>Название<input v-model="product" maxlength="200"></label>
         <label>Ожидаемый штрихкод — только для сверки<input v-model="expected" inputmode="numeric" maxlength="14"></label>
         <label>Штрихкод и состав<select v-model="layout"><option value="unknown">Не указано</option><option value="same_side">На одной стороне</option><option value="different_side">На разных сторонах</option></select></label>
-        <label>Заметки<textarea v-model="notes" maxlength="2000"/></label><button @click="addCase">Сохранить товар</button>
+        <label>Заметки<textarea v-model="notes" maxlength="2000"/></label>
+        <label>Эталонный состав — по одному ингредиенту на строку<textarea v-model="newReference" rows="5" placeholder="Молоко&#10;Соль&#10;Хлорид кальция"/></label>
+        <button @click="addCase">Сохранить товар</button>
+      </details>
+      <details v-if="selectedCase"><summary>Эталонный состав выбранного товара</summary>
+        <p class="small">Укажите отдельные ингредиенты по строкам. После сканирования отметьте те, которые действительно читаются в сыром OCR-тексте.</p>
+        <label>Ингредиенты<textarea v-model="referenceDraft" rows="6" placeholder="Каждый ингредиент на отдельной строке"/></label>
+        <button type="button" class="secondary" @click="safely(saveReference)">Сохранить эталон</button>
       </details>
       <label>Название устройства<input v-model="device" placeholder="Например: Pixel 8, Chrome" maxlength="150"></label>
       <label>Режим<select v-model="mode"><option v-for="m in modes" :key="m" :value="m">{{ labels[m] }}</option></select></label>
@@ -406,7 +414,23 @@ onBeforeUnmount(()=>{
     </section>
     <section v-show="tab==='camera'" id="lab-panel-camera" role="tabpanel" aria-labelledby="lab-tab-camera">
     <p v-if="active" class="small">Во время запуска вкладка камеры остаётся открытой, чтобы браузер не приостанавливал скрытое видео.</p>
-    <p class="small">{{labels[mode]}} · {{cases.find(c=>c.id===selectedCase)?.product_label||'Выберите товар в настройках'}}</p>
+    <div class="preflight">
+      <label>Тестируемый товар
+        <select v-model="selectedCase" :disabled="active||busy">
+          <option value="">Выберите товар</option>
+          <option v-for="c in cases" :key="c.id" :value="c.id">{{c.product_label||c.id}}</option>
+        </select>
+      </label>
+      <fieldset :disabled="active||busy" class="layout-question">
+        <legend>Где находятся штрихкод и состав?</legend>
+        <label><input v-model="runLayout" type="radio" value="same_side"/> На одной стороне упаковки</label>
+        <label><input v-model="runLayout" type="radio" value="different_side"/> На разных сторонах упаковки</label>
+        <label><input v-model="runLayout" type="radio" value="unknown"/> Не удалось определить</label>
+      </fieldset>
+      <p v-if="runLayout==='different_side'" class="small">Отметьте «Повернул упаковку» при повороте товара. Время поворота будет учтено в событиях.</p>
+      <p v-if="runLayout==='different_side'&&mode==='video_parallel'" class="small">Video Parallel возможна, но может отправлять OCR до появления состава. Этот риск измеряем, а не запрещаем стратегию.</p>
+      <p class="small">{{labels[mode]}} · эталонных ингредиентов: {{cases.find(c=>c.id===selectedCase)?.reference_ingredients?.length??0}}</p>
+    </div>
     <p class="instruction">{{ isVideo?videoInstruction:'Покажите штрихкод. Если данных недостаточно, понадобится фотография состава. При разных сторонах упаковки поверните товар к составу.' }}</p>
     <label>Ориентация области камеры<select v-model="orientation" :disabled="busy" @change="orientationChanged()"><option value="auto">По положению устройства</option><option value="portrait">Вертикальная</option><option value="landscape">Горизонтальная</option></select></label>
     <p class="small">Поворачивайте телефон, чтобы длинный состав поместился в кадр. Кнопка ниже сразу поворачивает живую картинку и одновременно кадр для OCR.</p>
@@ -452,14 +476,17 @@ onBeforeUnmount(()=>{
     <p role="status">Всего: {{nTotal}} · Исключено: {{nExcluded}} · В анализе: {{nTotal-nExcluded}}</p>
     <details><summary>Сводка по режимам</summary>
     <p class="small">Сводка всей выборки (до 1000 запусков), по режиму, версии, устройству и одинаковым настройкам. E2E — только успешные; успехи — от всех неисключённых запусков, включая прерванные. Показ исключённых в истории не включает их в расчёт.</p>
-    <article v-for="s in summaries" :key="s.key"><strong>{{labels[s.mode]}} · {{s.protocol}}</strong><p>Успешно {{s.success}} / {{s.n}} ({{Math.round(s.success/s.n*100)}}%)</p><p>p50 {{ms(s.p50)}} · p95 {{ms(s.p95)}}</p><p>OCR {{s.ocr_calls}} · API {{s.api_calls}}</p><p class="small">Оценка CPU общего процесса на запуск: {{ms(s.shared_process_cpu_per_run_ms)}}; на успешный: {{ms(s.shared_process_cpu_per_success_ms)}}. Это не точные затраты OCR.</p></article>
+    <article v-for="s in summaries" :key="s.key"><strong>{{labels[s.mode]}} · {{s.protocol}}</strong><p>Успешно {{s.success}} / {{s.n}} ({{Math.round(s.success/s.n*100)}}%)</p><p>p50 {{ms(s.p50)}} · p95 {{ms(s.p95)}}</p><p>OCR {{s.ocr_calls}} · API {{s.api_calls}}</p>
+      <p class="small">Проверка состава: {{s.quality_reviewed??0}} · качественных {{s.quality_successes??0}} · доля {{s.quality_success_rate==null?'нет оценок':Math.round(s.quality_success_rate*100)+'%'}}</p>
+      <p class="small">Оценка CPU общего процесса на запуск: {{ms(s.shared_process_cpu_per_run_ms)}}; на успешный: {{ms(s.shared_process_cpu_per_success_ms)}}. Это не точные затраты OCR.</p></article>
     </details>
     <article v-for="r in history" :key="r.id" :class="{excluded:r.excluded_from_analysis}"><p v-if="r.excluded_from_analysis" class="badge">Исключён: {{reasons[r.exclusion_reason||'']}}</p><strong>{{ labels[r.mode] }}</strong><p>{{new Date(r.started_at).toLocaleString()}} · {{statuses[r.outcome||r.status]||r.outcome||r.status}}</p><p class="small">{{r.id}}</p>
       <div class="actions"><button @click="safely(()=>openRun(r.id))">Подробнее</button><button class="secondary" @click="safely(()=>exportData(r.id,r.excluded_from_analysis))">JSON</button><button class="secondary" :disabled="r.status==='running'" @click="askExclusion(r)">{{r.excluded_from_analysis?'Вернуть в анализ':'Исключить из анализа'}}</button><button class="danger" :disabled="r.status==='running'||(runId===r.id&&(outbox.length>0||!!pendingFinish||flushing))" @click="askDeletion(r)">Удалить</button></div></article>
     <div class="actions"><button :disabled="offset===0" @click="offset-=30;safely(loadHistory)">Назад</button><span>{{total?offset+1:0}}–{{offset+history.length}} / {{total}}</span><button :disabled="offset+history.length>=total" @click="offset+=30;safely(loadHistory)">Далее</button></div>
     <article v-if="detail" id="run-detail">
       <button class="secondary" @click="detail=null">Закрыть подробности</button>
-      <h2>Подробности {{detail.case?.product_label}}</h2><p class="small">{{detail.id}} · {{detail.protocol_version}}</p>
+      <h2>Подробности {{detail.case?.product_label}}</h2><p class="small">{{detail.id}} · {{detail.protocol_version}} · расположение: {{detail.environment.label_layout??'не указано'}}</p>
+      <p class="small">Эталонных ингредиентов в момент теста: {{detailReference.length}}. Критерий качественного результата — 80%.</p>
       <button class="secondary" @click="safely(()=>openRun(detail!.id))">Обновить состояние</button>
       <p v-if="detail.excluded_from_analysis" class="badge">Исключён из анализа: {{reasons[detail.exclusion_reason||'']}}. {{detail.exclusion_comment}}</p>
       <div class="actions"><button class="secondary" :disabled="detail.status==='running'||detail.tasks?.some(t=>t.status==='running')" @click="askExclusion(detail)">{{detail.excluded_from_analysis?'Вернуть в анализ':'Исключить из анализа'}}</button><button class="danger" :disabled="detail.status==='running'||detail.tasks?.some(t=>t.status==='running')||(runId===detail.id&&(outbox.length>0||!!pendingFinish||flushing))" @click="askDeletion(detail)">Удалить</button></div>
@@ -475,6 +502,31 @@ onBeforeUnmount(()=>{
         <p v-if="t.kind==='ocr'">CPU общего процесса: {{ms(t.metrics.shared_process_cpu_delta_ms)}}. Дочерний Tesseract сюда не включён.</p>
         <p v-if="t.kind==='ocr'">RSS общего процесса (наблюдаемый пик): {{typeof t.metrics.shared_process_rss_peak_bytes==='number'?(t.metrics.shared_process_rss_peak_bytes/1048576).toFixed(1)+' МБ':'Не измерено'}}</p>
         <p>HTTP внешнего API: {{t.metrics.http_status??'—'}} · качество измерения: {{t.metrics.measurement_quality??'not_measured'}}</p>
+        <p v-if="t.kind==='ocr'&&t.metrics.capture" class="small">Отбор кадра: {{JSON.stringify(t.metrics.capture)}}</p>
+        <div v-if="t.kind==='ocr'" class="capture-archive">
+          <p class="small">Изображение, отправленное в OCR (для новых запусков):</p>
+          <img :src="frameImage(detail.id,t.id)" alt="Сохранённый кадр OCR" loading="lazy" class="saved-capture" @error="($event.target as HTMLImageElement).style.display='none'"/>
+          <div v-if="detailReference.length&&t.result" class="quality-review">
+            <p><strong>Ручная проверка rawText</strong> · {{t.quality_review?.matched_count??0}} / {{detailReference.length}}</p>
+            <p class="small">Отмечайте ингредиент, если он читается в rawText, даже с небольшой опечаткой. Не используйте compositionText и matched.</p>
+            <div v-if="qualityDrafts[t.id]" class="quality-form">
+              <label v-for="(ingredient,index) in detailReference" :key="index" class="quality-checkbox">
+                <input type="checkbox" :checked="qualityDrafts[t.id]?.matched_indices.includes(index)" @change="toggleQuality(t.id,index,($event.target as HTMLInputElement).checked)"/>
+                <span>{{ingredient}}</span>
+              </label>
+              <label>Полностью ли состав виден на кадре?
+                <select :value="qualityDrafts[t.id]?.frame_complete===true?'yes':qualityDrafts[t.id]?.frame_complete===false?'no':'unknown'"
+                  @change="qualityDrafts[t.id]!.frame_complete=($event.target as HTMLSelectElement).value==='unknown'?null:($event.target as HTMLSelectElement).value==='yes'">
+                  <option value="unknown">Не проверено</option><option value="yes">Да</option><option value="no">Нет</option>
+                </select>
+              </label>
+              <label>Заметки<textarea v-model="qualityDrafts[t.id]!.note" maxlength="1000"/></label>
+              <button class="secondary" @click="safely(()=>saveQuality(t.id))">Сохранить оценку OCR</button>
+              <p v-if="t.quality_review" class="small">Полнота {{Math.round(t.quality_review.ingredient_recall*100)}}% · {{t.quality_review.quality_success?'порог достигнут':'порог не достигнут'}}</p>
+            </div>
+          </div>
+          <p v-else-if="detailReference.length===0" class="small">Эталон не был записан для этого запуска. Добавьте его в карточку товара перед следующим тестом.</p>
+        </div>
         <p v-if="t.cancellation?.cancel_requested">Отмена запрошена. Эффективность: {{t.cancellation?.cancellation_effective?'подтверждена':'вычисления не прерываются'}}. Worker завершён: {{t.cancellation?.worker_stopped?'да':'не подтверждено'}}.</p>
         <details><summary>Результат и метрики</summary><pre>{{JSON.stringify({result:t.result,metrics:t.metrics},null,2)}}</pre></details>
       </section>
@@ -525,6 +577,13 @@ button:disabled{opacity:.45;cursor:default}.secondary{background:#edf4f0;color:#
 .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.actions>*{min-width:0}
 .tabs{display:flex;gap:6px;position:sticky;top:0;background:#f5f8f6;padding:8px 0;z-index:2}.tabs button{flex:1;background:#e7efeb;color:#315447}.tabs button[aria-selected=true]{background:#187f5d;color:white}
 dialog{margin:auto;inset:0;width:min(440px,calc(100vw - 24px));max-height:85dvh;overflow:auto;border:1px solid #cadbd2;border-radius:18px;padding:20px;color:inherit}dialog::backdrop{background:#10271c99}.excluded{border-style:dashed;background:#f5f5f3}.badge{font-size:13px;color:#805b14}.rotate{width:100%}
+.preflight{border:1px solid #cadbd2;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#f7faf9}
+.layout-question{margin:10px 0;padding:12px;border-radius:10px}
+.layout-question label,.quality-checkbox{display:flex;align-items:center;gap:10px;margin:8px 0}
+.layout-question input[type=radio]{width:18px;height:18px;flex:0 0 18px}
+.quality-checkbox input[type=checkbox]{width:18px;height:18px;flex:0 0 18px}
+.saved-capture{display:block;width:100%;max-width:560px;max-height:520px;object-fit:contain;margin:8px auto;border:1px solid #dae5e1;border-radius:8px}
+.capture-archive,.quality-review{padding:10px;margin-top:12px;background:#f7faf9;border:1px solid #dae5e1;border-radius:10px}
 .camera-frame{position:relative;container-type:size;aspect-ratio:var(--frame-ratio);width:min(100%,calc(68dvh * var(--frame-ratio)));max-width:100%;margin:0 auto;overflow:hidden;background:#17201d;border-radius:16px}
 .camera-frame video{position:absolute;left:50%;top:50%;max-width:none;max-height:none;display:block;object-fit:fill;transform-origin:center}
 .photo-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#17201d}
