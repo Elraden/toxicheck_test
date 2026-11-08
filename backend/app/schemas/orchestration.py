@@ -57,3 +57,18 @@ class FinishInput(BaseModel):
 
 class ReviewInput(BaseModel):
     needs_review: bool
+
+class ExclusionInput(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    excluded: bool
+    reason: Literal['wrong_product','bad_setup','operator_mistake','duplicate_trial','instrumentation_error','other'] | None = None
+    comment: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode='after')
+    def documented(self):
+        if self.excluded and (not self.reason or (self.reason == 'other' and not self.comment)):
+            raise ValueError('Укажите причину исключения; для другой причины нужен комментарий.')
+        if not self.excluded and (self.reason or self.comment):
+            raise ValueError('При восстановлении причина сохраняется в журнале автоматически.')
+        self.comment = self.comment or None
+        return self
