@@ -327,13 +327,13 @@ onBeforeUnmount(()=>{
     <p v-if="active" class="small">Во время запуска вкладка камеры остаётся открытой, чтобы браузер не приостанавливал скрытое видео.</p>
     <p class="small">{{labels[mode]}} · {{cases.find(c=>c.id===selectedCase)?.product_label||'Выберите товар в настройках'}}</p>
     <p ref="cameraPanel" class="instruction">{{ isVideo?videoInstruction:'Покажите штрихкод. Если данных недостаточно, понадобится фотография состава. При разных сторонах упаковки поверните товар к составу.' }}</p>
-    <label>Ориентация предпросмотра<select v-model="orientation" :disabled="busy" @change="orientationChanged()"><option value="auto">По положению устройства</option><option value="portrait">Вертикальная</option><option value="landscape">Горизонтальная</option></select></label>
+    <label>Ориентация области камеры<select v-model="orientation" :disabled="busy" @change="orientationChanged()"><option value="auto">По положению устройства</option><option value="portrait">Вертикальная</option><option value="landscape">Горизонтальная</option></select></label>
     <p class="small">Поворачивайте телефон, чтобы длинный состав поместился в кадр. Кнопка ниже сразу поворачивает живую картинку и одновременно кадр для OCR.</p>
     <div class="camera-frame" :style="frameStyle">
       <video ref="video" :style="videoStyle" muted playsinline autoplay aria-label="Камера эксперимента" @resize="syncCameraSize"/>
       <img v-if="preview" class="photo-preview" :src="preview" alt="Подтверждение фотографии состава">
     </div>
-    <button class="secondary rotate" :disabled="busy" @click="rotateFrame">Повернуть {{preview?'фото':'камеру'}} ↻ 90°</button>
+    <button class="secondary rotate" :disabled="busy" @click="rotateFrame">Повернуть {{preview?'превью':'кадр'}} ↻ 90°</button>
     <p class="small">Предпросмотр и изображение, отправляемое в OCR, имеют одинаковую ориентацию. Поворот изображения не увеличивает поле зрения объектива.</p>
     <p v-if="state" role="status">Штрихкод: {{ statuses[state.barcodeState]||state.barcodeState }} · lookup: {{ statuses[state.lookupState]||state.lookupState }} · OCR: {{ statuses[state.ocrState]||state.ocrState }}</p>
     <button v-if="!active" :disabled="busy||!!saveError" @click="start">{{ busy?'Подготовка…':'Начать эксперимент' }}</button>
