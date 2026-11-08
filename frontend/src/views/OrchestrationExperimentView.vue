@@ -71,6 +71,27 @@ async function saveExclusion(){
     exclusionDialog.value?.close();
   }catch(e){exclusionError.value=message(e);}finally{exclusionBusy.value=false;}
 }
+const deletionDialog=ref<HTMLDialogElement>(),deletionTarget=ref<Run|null>(null);
+const deletionConfirmation=ref(''),deletionBusy=ref(false),deletionError=ref('');
+function askDeletion(run:Run){
+  deletionTarget.value=run;deletionConfirmation.value='';deletionError.value='';
+  deletionDialog.value?.showModal();
+}
+async function confirmDeletion(){
+  const run=deletionTarget.value;
+  if(!run||deletionBusy.value||deletionConfirmation.value!=='УДАЛИТЬ')return;
+  deletionBusy.value=true;deletionError.value='';
+  try{
+    await write('/runs/'+run.id,{},'DELETE');
+    if(detail.value?.id===run.id)detail.value=null;
+    if(runId.value===run.id){
+      runId.value='';outbox=[];pendingFinish=undefined;trace.value=[];result.value=null;outcome.value='';
+      sessionStorage.removeItem(key);
+    }
+    deletionDialog.value?.close();deletionTarget.value=null;
+    await loadHistory();
+  }catch(e){deletionError.value=message(e);}finally{deletionBusy.value=false;}
+}
 function changeTab(id:typeof tab.value){if((active.value||busy.value)&&id!=='camera')return;tab.value=id;}
 function tabKey(event:KeyboardEvent,index:number){
   if(active.value||busy.value)return;
@@ -183,7 +204,7 @@ async function start(){
     video.value.srcObject=stream;await video.value.play();syncCameraSize();engine.ready();
     const settings=stream.getVideoTracks()[0]?.getSettings();
     engine.event('camera_settings',{width:settings?.width,height:settings?.height,frame_rate:settings?.frameRate,facing_mode:settings?.facingMode});
-    cameraPanel.value?.scrollIntoView({block:'start',behavior:'smooth'});
+    cameraPanel.value?.scrollIntoView({block:'center',behavior:'smooth'});
     const hints=new Map();hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.EAN_13,BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.UPC_E]);
     const reader=new BrowserMultiFormatReader(hints,{delayBetweenScanAttempts:200,delayBetweenScanSuccess:500});
     controls=await reader.decodeFromVideoElement(video.value,(decoded,_error,ctrl)=>{
@@ -326,12 +347,19 @@ onBeforeUnmount(()=>{
     <section v-show="tab==='camera'" id="lab-panel-camera" role="tabpanel" aria-labelledby="lab-tab-camera">
     <p v-if="active" class="small">Во время запуска вкладка камеры остаётся открытой, чтобы браузер не приостанавливал скрытое видео.</p>
     <p class="small">{{labels[mode]}} · {{cases.find(c=>c.id===selectedCase)?.product_label||'Выберите товар в настройках'}}</p>
-    <p ref="cameraPanel" class="instruction">{{ isVideo?videoInstruction:'Покажите штрихкод. Если данных недостаточно, понадобится фотография состава. При разных сторонах упаковки поверните товар к составу.' }}</p>
+    <p class="instruction">{{ isVideo?videoInstruction:'Покажите штрихкод. Если данных недостаточно, понадобится фотография состава. При разных сторонах упаковки поверните товар к составу.' }}</p>
     <label>Ориентация области камеры<select v-model="orientation" :disabled="busy" @change="orientationChanged()"><option value="auto">По положению устройства</option><option value="portrait">Вертикальная</option><option value="landscape">Горизонтальная</option></select></label>
     <p class="small">Поворачивайте телефон, чтобы длинный состав поместился в кадр. Кнопка ниже сразу поворачивает живую картинку и одновременно кадр для OCR.</p>
-    <div class="camera-frame" :style="frameStyle">
+    <div ref="cameraPanel" class="camera-frame" :style="frameStyle">
       <video ref="video" :style="videoStyle" muted playsinline autoplay aria-label="Камера эксперимента" @resize="syncCameraSize"/>
       <img v-if="preview" class="photo-preview" :src="preview" alt="Подтверждение фотографии состава">
+      <div v-if="active && (preview || state?.photoHint)" class="camera-controls">
+        <template v-if="preview">
+          <button :disabled="!state?.canCapture()" @click="confirmPhoto">Подтвердить фото</button>
+          <button class="secondary" @click="discardPhoto">Переснять</button>
+        </template>
+        <button v-else class="capture-button" :disabled="!state?.camera||state?.ocrState==='running'" @click="takePhoto">Сфотографировать состав</button>
+      </div>
     </div>
     <button class="secondary rotate" :disabled="busy" @click="rotateFrame">Повернуть {{preview?'превью':'кадр'}} ↻ 90°</button>
     <p class="small">Предпросмотр и изображение, отправляемое в OCR, имеют одинаковую ориентацию. Поворот изображения не увеличивает поле зрения объектива.</p>
@@ -339,8 +367,6 @@ onBeforeUnmount(()=>{
     <button v-if="!active" :disabled="busy||!!saveError" @click="start">{{ busy?'Подготовка…':'Начать эксперимент' }}</button>
     <template v-if="active">
       <div class="actions"><button class="secondary" @click="engine?.event('composition_visible')">Состав появился в кадре</button><button class="secondary" @click="engine?.event('package_turned')">Повернул упаковку</button></div>
-      <button v-if="state?.photoHint" :disabled="!state?.camera||state?.ocrState==='running'" @click="takePhoto">Сфотографировать состав</button>
-      <div v-if="preview"><div class="actions"><button :disabled="!state?.canCapture()" @click="confirmPhoto">Подтвердить фото</button><button class="secondary" @click="discardPhoto">Переснять</button></div></div>
       <button class="secondary" @click="engine?.finish('cancelled')">Остановить запуск</button>
     </template>
     <article v-if="outcome"><h2>Результат: {{ statuses[outcome]||outcome }}</h2><p v-if="result?.sufficient">Получен пригодный состав</p>
@@ -369,14 +395,14 @@ onBeforeUnmount(()=>{
     <article v-for="s in summaries" :key="s.key"><strong>{{labels[s.mode]}} · {{s.protocol}}</strong><p>Успешно {{s.success}} / {{s.n}} ({{Math.round(s.success/s.n*100)}}%)</p><p>p50 {{ms(s.p50)}} · p95 {{ms(s.p95)}}</p><p>OCR {{s.ocr_calls}} · API {{s.api_calls}}</p><p class="small">Оценка CPU общего процесса на запуск: {{ms(s.shared_process_cpu_per_run_ms)}}; на успешный: {{ms(s.shared_process_cpu_per_success_ms)}}. Это не точные затраты OCR.</p></article>
     </details>
     <article v-for="r in history" :key="r.id" :class="{excluded:r.excluded_from_analysis}"><p v-if="r.excluded_from_analysis" class="badge">Исключён: {{reasons[r.exclusion_reason||'']}}</p><strong>{{ labels[r.mode] }}</strong><p>{{new Date(r.started_at).toLocaleString()}} · {{statuses[r.outcome||r.status]||r.outcome||r.status}}</p><p class="small">{{r.id}}</p>
-      <div class="actions"><button @click="safely(()=>openRun(r.id))">Подробнее</button><button class="secondary" @click="safely(()=>exportData(r.id,r.excluded_from_analysis))">JSON</button><button class="secondary" :disabled="r.status==='running'" @click="askExclusion(r)">{{r.excluded_from_analysis?'Вернуть в анализ':'Исключить из анализа'}}</button></div></article>
+      <div class="actions"><button @click="safely(()=>openRun(r.id))">Подробнее</button><button class="secondary" @click="safely(()=>exportData(r.id,r.excluded_from_analysis))">JSON</button><button class="secondary" :disabled="r.status==='running'" @click="askExclusion(r)">{{r.excluded_from_analysis?'Вернуть в анализ':'Исключить из анализа'}}</button><button class="danger" :disabled="r.status==='running'||(runId===r.id&&(outbox.length>0||!!pendingFinish||flushing))" @click="askDeletion(r)">Удалить</button></div></article>
     <div class="actions"><button :disabled="offset===0" @click="offset-=30;safely(loadHistory)">Назад</button><span>{{total?offset+1:0}}–{{offset+history.length}} / {{total}}</span><button :disabled="offset+history.length>=total" @click="offset+=30;safely(loadHistory)">Далее</button></div>
     <article v-if="detail" id="run-detail">
       <button class="secondary" @click="detail=null">Закрыть подробности</button>
       <h2>Подробности {{detail.case?.product_label}}</h2><p class="small">{{detail.id}} · {{detail.protocol_version}}</p>
       <button class="secondary" @click="safely(()=>openRun(detail!.id))">Обновить состояние</button>
       <p v-if="detail.excluded_from_analysis" class="badge">Исключён из анализа: {{reasons[detail.exclusion_reason||'']}}. {{detail.exclusion_comment}}</p>
-      <button class="secondary" :disabled="detail.status==='running'||detail.tasks?.some(t=>t.status==='running')" @click="askExclusion(detail)">{{detail.excluded_from_analysis?'Вернуть в анализ':'Исключить из анализа'}}</button>
+      <div class="actions"><button class="secondary" :disabled="detail.status==='running'||detail.tasks?.some(t=>t.status==='running')" @click="askExclusion(detail)">{{detail.excluded_from_analysis?'Вернуть в анализ':'Исключить из анализа'}}</button><button class="danger" :disabled="detail.status==='running'||detail.tasks?.some(t=>t.status==='running')||(runId===detail.id&&(outbox.length>0||!!pendingFinish||flushing))" @click="askDeletion(detail)">Удалить</button></div>
       <details v-if="detail.exclusion_audit?.length"><summary>История исключений</summary><p v-for="a in detail.exclusion_audit" :key="a.id">{{new Date(a.created_at).toLocaleString()}} · {{a.action==='exclude'?'Исключён':'Восстановлен'}} · {{reasons[a.reason]}} {{a.comment}}</p></details>
       <details><summary>Время, задачи и события</summary>
       <p v-if="detail.status==='running'">Запуск не завершён.</p>
@@ -409,6 +435,16 @@ onBeforeUnmount(()=>{
         <div class="actions"><button :disabled="exclusionBusy">{{exclusionBusy?'Сохраняем…':'Подтвердить'}}</button><button type="button" class="secondary" :disabled="exclusionBusy" @click="exclusionDialog?.close()">Отмена</button></div>
       </form>
     </dialog>
+    <dialog ref="deletionDialog" aria-labelledby="deletion-title">
+      <form @submit.prevent="confirmDeletion">
+        <h2 id="deletion-title">Удалить запуск навсегда?</h2>
+        <p class="small">{{deletionTarget?.case?.product_label||'Эксперимент'}} · {{deletionTarget?.id}}</p>
+        <p class="delete-warning">Запуск, OCR/lookup-задачи, события и история исключений будут физически удалены из базы данных. Восстановить через стенд нельзя. Для обычных неудачных распознаваний лучше использовать «Исключить из анализа».</p>
+        <label>Введите УДАЛИТЬ для подтверждения<input v-model="deletionConfirmation" autocomplete="off" spellcheck="false" required placeholder="УДАЛИТЬ" /></label>
+        <p v-if="deletionError" class="error" role="alert">{{deletionError}}</p>
+        <div class="actions"><button class="danger" :disabled="deletionBusy||deletionConfirmation!=='УДАЛИТЬ'">{{deletionBusy?'Удаление…':'Удалить навсегда'}}</button><button type="button" class="secondary" :disabled="deletionBusy" @click="deletionDialog?.close()">Отмена</button></div>
+      </form>
+    </dialog>
   </template>
   <p v-if="error" class="error" role="alert">{{error}}</p>
 </section>
@@ -425,12 +461,17 @@ legend{font-weight:700}label{display:grid;gap:7px;font-size:13px;margin:12px 0}
 input,select,textarea{width:100%;min-width:0;padding:11px;border:1px solid #bdcec5;border-radius:8px;font:inherit;background:white;color:inherit}
 input[type=checkbox]{width:20px;height:20px}button{padding:12px 14px;background:#187f5d;color:white;border:0;border-radius:9px;font:inherit;font-size:13px;cursor:pointer;min-height:44px;margin:5px 0}
 button:disabled{opacity:.45;cursor:default}.secondary{background:#edf4f0;color:#205740}
+.danger{background:#ae263a;color:white}.delete-warning{padding:12px;border-radius:10px;background:#fff0f1;color:#80192a;line-height:1.55}
 .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.actions>*{min-width:0}
 .tabs{display:flex;gap:6px;position:sticky;top:0;background:#f5f8f6;padding:8px 0;z-index:2}.tabs button{flex:1;background:#e7efeb;color:#315447}.tabs button[aria-selected=true]{background:#187f5d;color:white}
 dialog{margin:auto;inset:0;width:min(440px,calc(100vw - 24px));max-height:85dvh;overflow:auto;border:1px solid #cadbd2;border-radius:18px;padding:20px;color:inherit}dialog::backdrop{background:#10271c99}.excluded{border-style:dashed;background:#f5f5f3}.badge{font-size:13px;color:#805b14}.rotate{width:100%}
 .camera-frame{position:relative;container-type:size;aspect-ratio:var(--frame-ratio);width:min(100%,calc(68dvh * var(--frame-ratio)));max-width:100%;margin:0 auto;overflow:hidden;background:#17201d;border-radius:16px}
 .camera-frame video{position:absolute;left:50%;top:50%;max-width:none;max-height:none;display:block;object-fit:fill;transform-origin:center}
 .photo-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#17201d}
+.camera-controls{position:absolute;z-index:3;bottom:0;left:0;right:0;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:8px;padding:20px 12px max(12px, env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(12,28,22,.82))}
+.camera-controls button{margin:0;min-height:48px;max-width:100%;box-shadow:0 2px 8px #0004}
+.camera-controls .capture-button{width:100%;max-width:290px;font-weight:700}
+.camera-controls .secondary{background:#fff;color:#205740}
 img{max-width:100%;object-fit:contain}summary{cursor:pointer;padding:10px 0}
 .error{color:#ae263a;background:#fff0f1;padding:12px;border-radius:10px}pre{white-space:pre-wrap;word-break:break-word;font-size:11px;max-height:400px;overflow:auto}
 .events{max-height:300px;overflow:auto;font-size:12px;line-height:1.8;padding-left:20px}

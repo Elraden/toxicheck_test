@@ -68,7 +68,7 @@ class LabAuthTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_guest_cannot_read_or_write_any_experiment_resource(self):
         id=str(uuid4())
-        paths=[('GET','/cases'),('POST','/cases'),('GET','/runs'),('POST','/runs'),
+        paths=[('GET','/cases'),('POST','/cases'),('GET','/runs'),('POST','/runs'),('DELETE',f'/runs/{id}'),
                ('GET',f'/runs/{id}'),('POST',f'/runs/{id}/events'),('POST',f'/runs/{id}/finish'),
                ('POST',f'/runs/{id}/ocr'),('POST',f'/runs/{id}/lookup'),('GET','/export.json'),('PUT',f'/runs/{id}/exclusion')]
         with patch('app.services.identity.IdentityService.read',new=AsyncMock(return_value=None)):
@@ -81,6 +81,8 @@ class LabAuthTests(unittest.IsolatedAsyncioTestCase):
         response=await self.client.post('/api/admin/orchestration/cases',json={})
         self.assertEqual(response.status_code,403)
         response=await self.client.put('/api/admin/orchestration/runs/'+str(uuid4())+'/exclusion',json={'excluded':True,'reason':'bad_setup'})
+        self.assertEqual(response.status_code,403)
+        response=await self.client.delete('/api/admin/orchestration/runs/'+str(uuid4()))
         self.assertEqual(response.status_code,403)
 
 import os
@@ -197,7 +199,8 @@ class LabDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.principal=SimpleNamespace(user=SimpleNamespace(id=uuid4()),csrf='other')
         for method,path,payload in [('GET',f'/runs/{self.id}',None),('POST',f'/runs/{self.id}/events',{'events':[]}),
                                     ('GET',f'/runs/{self.id}/export.json',None),
-                                    ('PUT',f'/runs/{self.id}/exclusion',{'excluded':True,'reason':'bad_setup'})]:
+                                    ('PUT',f'/runs/{self.id}/exclusion',{'excluded':True,'reason':'bad_setup'}),
+                                    ('DELETE',f'/runs/{self.id}',None)]:
             r=await self.client.request(method,path,json=payload)
             self.assertEqual(r.status_code,404,r.text)
 
@@ -315,6 +318,38 @@ class LabDatabaseTests(unittest.IsolatedAsyncioTestCase):
         response=await self.client.put(endpoint,json=payload)
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(await self.conn.fetchval('SELECT count(*) FROM orchestration_lab.exclusion_audit'),1)
+
+    async def test_permanent_delete_removes_entire_trial_and_recalculates_summaries(self):
+        endpoint=f'/runs/{self.id}'
+        # Never delete an active experiment.
+        self.assertEqual((await self.client.delete(endpoint)).status_code,409)
+        tid=uuid4()
+        await self.conn.execute("INSERT INTO orchestration_lab.ocr_tasks(id,run_id,kind,status,input_sha256) VALUES($1,$2,'ocr','running','test')",tid,UUID(self.id))
+        await self.client.post(endpoint+'/finish',json={'outcome':'timeout'})
+        # Run is finished, but the OCR worker is still running.
+        self.assertEqual((await self.client.delete(endpoint)).status_code,409)
+        await self.conn.execute("UPDATE orchestration_lab.ocr_tasks SET status='finished' WHERE id=$1",tid)
+        await self.client.post(endpoint+'/events',json={'events':[{'seq':0,'event_name':'run_started','relative_ms':0,'details':{}}]})
+        await self.client.put(endpoint+'/exclusion',json={'excluded':True,'reason':'operator_mistake','comment':'Сбой камеры'})
+        other=str(uuid4())
+        self.assertEqual((await self.client.post('/runs',json={'id':other,'case_id':self.case,'mode':'photo_adaptive'})).status_code,200)
+        self.assertEqual((await self.client.post('/runs/'+other+'/finish',json={'outcome':'timeout'})).status_code,200)
+        before=(await self.client.get('/summary')).json()
+        self.assertEqual((before['n_total'],before['n_excluded']),(2,1))
+        response=await self.client.delete(endpoint)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json(),{'deleted':True,'id':self.id})
+        self.assertEqual((await self.client.get(endpoint)).status_code,404)
+        self.assertEqual((await self.client.delete(endpoint)).status_code,404)
+        self.assertEqual(await self.conn.fetchval('SELECT count(*) FROM orchestration_lab.ocr_tasks WHERE run_id=$1',UUID(self.id)),0)
+        self.assertEqual(await self.conn.fetchval('SELECT count(*) FROM orchestration_lab.events WHERE run_id=$1',UUID(self.id)),0)
+        self.assertEqual(await self.conn.fetchval('SELECT count(*) FROM orchestration_lab.exclusion_audit WHERE run_id=$1',UUID(self.id)),0)
+        self.assertEqual(await self.conn.fetchval('SELECT count(*) FROM orchestration_lab.runs WHERE id=$1',UUID(self.id)),0)
+        self.assertEqual((await self.client.get('/runs?exclusion_status=all')).json()['total'],1)
+        self.assertEqual((await self.client.get('/export.json?include_excluded=true')).json()['runs'][0]['id'],other)
+        after=(await self.client.get('/summary')).json()
+        self.assertEqual((after['n_total'],after['n_excluded']),(1,0))
+        self.assertEqual(len(after['groups']),1)
 
     async def test_orientation_events_are_exported_without_changing_metrics(self):
         events=[{'seq':i,'event_name':name,'relative_ms':10+i,'details':{'angle':i*90}} for i,name in
