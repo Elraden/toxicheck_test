@@ -88,6 +88,25 @@ test('canvas rotation preserves colored corner pixels and derives every preview 
    expect(r.corners).toEqual(original.map((_,i)=>original[(i-turns+4)%4]));
  }
 });
+test('capture and confirmation stay visible over the camera on a phone-sized screen',async({page})=>{
+ await page.setViewportSize({width:390,height:844});
+ await fixture(page);
+ await configure(page,'photo_adaptive');
+ await page.getByRole('button',{name:'Начать эксперимент',exact:true}).click();
+ const camera=page.locator('.camera-frame');
+ const capture=camera.getByRole('button',{name:'Сфотографировать состав',exact:true});
+ await expect(capture).toBeVisible();
+ await expect(capture).toBeInViewport({ratio:1});
+ await capture.click();
+ const confirm=camera.getByRole('button',{name:'Подтвердить фото',exact:true});
+ const retake=camera.getByRole('button',{name:'Переснять',exact:true});
+ await expect(confirm).toBeVisible();
+ await expect(confirm).toBeInViewport({ratio:1});
+ await expect(retake).toBeVisible();
+ await retake.click();
+ await expect(capture).toBeVisible();
+ await expect(confirm).toHaveCount(0);
+});
 test('photo preview exactly matches submitted bytes; orientation events retain the run',async({page})=>{
  const state=await fixture(page);
  await configure(page,'photo_adaptive');
