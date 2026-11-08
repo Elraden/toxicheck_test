@@ -1,16 +1,18 @@
 """Admin-only real-camera orchestration experiment API."""
 from uuid import UUID, uuid4
+from pathlib import Path
 from typing import Literal
 from datetime import datetime
 import hashlib
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy import text
 from app.api.identity_dependencies import require_admin, admin_write, throttle
 from app.db.session import AnnotationSessionLocal
 from app.services.identity import Principal
 from app.services import orchestration as lab
-from app.services.research_storage import decode_photo
-from app.schemas.orchestration import CaseInput, RunInput, EventsInput, TaskInput, FinishInput, ReviewInput, ExclusionInput, Mode
+from app.services.research_storage import decode_photo, store_photo, photo_path
+from app.schemas.orchestration import CaseInput, RunInput, EventsInput, TaskInput, FinishInput, ReviewInput, ExclusionInput, QualityReviewInput, Mode
 
 async def lab_access(actor:Principal=Depends(require_admin)):
     await throttle('lab:access:'+str(actor.user.id),600,60)
@@ -44,10 +46,27 @@ async def create_case(payload:CaseInput,actor:Principal=Depends(admin_write)):
     await throttle('lab:cases:'+str(actor.user.id),30,60)
     id=uuid4()
     async with AnnotationSessionLocal() as db,db.begin():
-        await db.execute(text("""INSERT INTO orchestration_lab.cases(id,created_by,product_label,expected_barcode,label_layout,notes)
-            VALUES(:id,:owner,:product_label,:expected_barcode,:label_layout,:notes)"""),
-            dict(id=id,owner=actor.user.id,**payload.model_dump()))
+        await db.execute(text("""INSERT INTO orchestration_lab.cases
+            (id,created_by,product_label,expected_barcode,label_layout,notes,reference_ingredients)
+            VALUES(:id,:owner,:product_label,:expected_barcode,:label_layout,:notes,CAST(:reference AS jsonb))"""),
+            dict(id=id,owner=actor.user.id,product_label=payload.product_label,
+                 expected_barcode=payload.expected_barcode,label_layout=payload.label_layout,
+                 notes=payload.notes,reference=lab.encoded(payload.reference_ingredients)))
     return {'id':id,**payload.model_dump()}
+
+@router.put('/cases/{case_id}')
+async def update_case(case_id:UUID,payload:CaseInput,actor:Principal=Depends(admin_write)):
+    await throttle('lab:cases:'+str(actor.user.id),30,60)
+    async with AnnotationSessionLocal() as db,db.begin():
+        row=(await db.execute(text("""UPDATE orchestration_lab.cases
+            SET product_label=:name, expected_barcode=:barcode, label_layout=:layout,
+                notes=:notes, reference_ingredients=CAST(:reference AS jsonb)
+            WHERE id=:id AND created_by=:owner RETURNING *"""),
+            dict(id=case_id,owner=actor.user.id,name=payload.product_label,
+                 barcode=payload.expected_barcode,layout=payload.label_layout,notes=payload.notes,
+                 reference=lab.encoded(payload.reference_ingredients)))).mappings().first()
+        if not row: raise HTTPException(404,'Товар не найден.')
+        return dict(row)
 
 @router.post('/runs')
 async def create_run(payload:RunInput,actor:Principal=Depends(admin_write)):
@@ -60,15 +79,17 @@ async def create_run(payload:RunInput,actor:Principal=Depends(admin_write)):
             if previous['created_by']!=actor.user.id or previous['case_id']!=payload.case_id or previous['mode']!=payload.mode or previous['config']!=payload.config.model_dump():
                 raise HTTPException(409,'Идентификатор запуска уже использован.')
             return dict(previous)
-        if not await db.scalar(text('SELECT id FROM orchestration_lab.cases WHERE id=:id AND created_by=:owner'),dict(id=payload.case_id,owner=actor.user.id)):
-            raise HTTPException(404,'Товар не найден.')
+        case=(await db.execute(text('SELECT reference_ingredients FROM orchestration_lab.cases WHERE id=:id AND created_by=:owner'),
+            dict(id=payload.case_id,owner=actor.user.id))).mappings().first()
+        if not case: raise HTTPException(404,'Товар не найден.')
         await db.execute(text("""UPDATE orchestration_lab.runs SET status='interrupted',outcome='technical_failure',
             finished_at=now(),summary=summary || '{"interruption":"heartbeat_expired"}'::jsonb
             WHERE status='running' AND heartbeat_at<now()-interval '180 seconds'"""))
         if await db.scalar(text("SELECT EXISTS(SELECT 1 FROM orchestration_lab.runs WHERE status='running') OR EXISTS(SELECT 1 FROM orchestration_lab.ocr_tasks WHERE status='running')")):
             raise HTTPException(409,'Другой запуск или его серверная задача ещё работает.')
         catalog_hash=await db.scalar(text('SELECT input_sha256 FROM catalog.import_runs ORDER BY id DESC LIMIT 1'))
-        env={**payload.environment,'catalog_import_sha256':catalog_hash,'app_revision':lab.SERVER_VERSION,'ocr_version':'embedded-adaptive-v1','catalog_schema_version':2,
+        env={**payload.environment,'reference_ingredients':case['reference_ingredients'],'quality_threshold':0.8,
+             'catalog_import_sha256':catalog_hash,'app_revision':lab.SERVER_VERSION,'ocr_version':'embedded-adaptive-v1','catalog_schema_version':2,
              'network_path':'server_openfoodfacts','cache_policy':'no_application_cache','client_resources':'not_measured'}
         return dict((await db.execute(text("""INSERT INTO orchestration_lab.runs(id,case_id,mode,protocol_version,config,environment,created_by)
             VALUES(:id,:case,:mode,:protocol,CAST(:config AS jsonb),CAST(:env AS jsonb),:owner) RETURNING *"""),
@@ -100,6 +121,7 @@ async def start_task(run_id:UUID,kind:str,payload:TaskInput,actor:Principal=Depe
     await throttle('lab:tasks:'+str(actor.user.id),30,60)
     if kind=='ocr':
         if not payload.image_base64: raise HTTPException(422,'Нужно изображение.')
+        bounded(payload.capture_metrics,2048)
         from starlette.concurrency import run_in_threadpool
         raw,_=await run_in_threadpool(decode_photo,payload.image_base64)
         digest=hashlib.sha256(raw).hexdigest()
@@ -128,12 +150,59 @@ async def start_task(run_id:UUID,kind:str,payload:TaskInput,actor:Principal=Depe
                 AND requested_at>now()-make_interval(secs=>:seconds))"""),
                 dict(id=run_id,seconds=run['config']['frameMinIntervalMs']/1000))
             if recent: raise HTTPException(429,'Слишком частый запрос кадра.')
-        row=dict((await db.execute(text("""INSERT INTO orchestration_lab.ocr_tasks(id,run_id,kind,status,input_sha256)
-            VALUES(:id,:run,:kind,'running',:digest) RETURNING *"""),dict(id=payload.id,run=run_id,kind=kind,digest=digest))).mappings().one())
+        initial_metrics={'capture':payload.capture_metrics} if kind=='ocr' else {}
+        row=dict((await db.execute(text("""INSERT INTO orchestration_lab.ocr_tasks
+            (id,run_id,kind,status,input_sha256,metrics)
+            VALUES(:id,:run,:kind,'running',:digest,CAST(:metrics AS jsonb)) RETURNING *"""),
+            dict(id=payload.id,run=run_id,kind=kind,digest=digest,metrics=lab.encoded(initial_metrics)))).mappings().one())
+        if kind=='ocr':
+            # Immutable image: this is exactly what the OCR worker receives.
+            store_photo(payload.id,raw)
         await lab.server_event(db,run_id,'ocr_request_started' if kind=='ocr' else 'lookup_started',{'task_id':str(payload.id),'kind':kind})
         lookup_ms=run['config']['lookupMaxMs']
     lab.launch(payload.id,run_id,kind,value,lookup_ms)
     return row
+
+@router.get('/runs/{run_id}/tasks/{task_id}/image')
+async def task_image(run_id:UUID,task_id:UUID,actor:Principal=Depends(require_admin)):
+    async with AnnotationSessionLocal() as db:
+        await owned(db,run_id,actor)
+        kind=await db.scalar(text('SELECT kind FROM orchestration_lab.ocr_tasks WHERE id=:task AND run_id=:run'),
+            dict(task=task_id,run=run_id))
+        if kind!='ocr': raise HTTPException(404,'Кадр не найден.')
+    path=photo_path(str(task_id))
+    if not path.is_file(): raise HTTPException(404,'Кадр отсутствует (исторический тест).')
+    _,mime=decode_photo(__import__('base64').b64encode(path.read_bytes()).decode('ascii'))
+    return FileResponse(path,media_type=mime,headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'})
+
+
+@router.put('/runs/{run_id}/tasks/{task_id}/quality')
+async def quality_review(run_id:UUID,task_id:UUID,payload:QualityReviewInput,
+                         actor:Principal=Depends(admin_write)):
+    await throttle('lab:quality:'+str(actor.user.id),120,60)
+    async with AnnotationSessionLocal() as db,db.begin():
+        run=await owned(db,run_id,actor,True)
+        if run['status']=='running': raise HTTPException(409,'Завершите эксперимент перед оценкой качества.')
+        task=(await db.execute(text("""SELECT kind,result FROM orchestration_lab.ocr_tasks
+            WHERE id=:id AND run_id=:run FOR UPDATE"""),
+            dict(id=task_id,run=run_id))).mappings().first()
+        if not task or task['kind']!='ocr': raise HTTPException(404,'OCR-запрос не найден.')
+        reference=run['environment'].get('reference_ingredients') or []
+        if not reference: raise HTTPException(422,'В этом запуске не был сохранён эталонный состав.')
+        if any(index<0 or index>=len(reference) for index in payload.matched_indices):
+            raise HTTPException(422,'Неверный индекс эталонного ингредиента.')
+        if not task['result'] or not task['result'].get('rawText'):
+            if payload.matched_indices:
+                raise HTTPException(422,'Нельзя отметить распознанные ингредиенты без rawText.')
+        recall=len(payload.matched_indices)/len(reference)
+        review=dict(matched_indices=sorted(payload.matched_indices),
+                    matched_count=len(payload.matched_indices),reference_count=len(reference),
+                    ingredient_recall=round(recall,4),quality_success=recall>=0.8,
+                    frame_complete=payload.frame_complete,note=payload.note)
+        await db.execute(text("""UPDATE orchestration_lab.ocr_tasks SET quality_review=CAST(:review AS jsonb)
+            WHERE id=:id AND run_id=:run"""),dict(review=lab.encoded(review),id=task_id,run=run_id))
+    return review
+
 
 @router.post('/runs/{run_id}/tasks/{task_id}/cancel')
 async def cancel_task(run_id:UUID,task_id:UUID,actor:Principal=Depends(admin_write)):
@@ -221,9 +290,18 @@ async def delete_run(run_id:UUID,actor:Principal=Depends(admin_write)):
             raise HTTPException(409,'Дождитесь завершения запуска и всех серверных задач.')
         # Tasks and exclusion audit do not have ON DELETE CASCADE; events do.
         await db.execute(text('DELETE FROM orchestration_lab.exclusion_audit WHERE run_id=:id'),dict(id=run_id))
+        image_ids=list((await db.scalars(text("""SELECT id FROM orchestration_lab.ocr_tasks
+            WHERE run_id=:id AND kind='ocr'"""),dict(id=run_id))).all())
         await db.execute(text('DELETE FROM orchestration_lab.ocr_tasks WHERE run_id=:id'),dict(id=run_id))
         await db.execute(text('DELETE FROM orchestration_lab.runs WHERE id=:id AND created_by=:owner'),
                          dict(id=run_id,owner=actor.user.id))
+    # The run and its tasks are gone; remove private captures as well.
+    for image_id in image_ids:
+        try:
+            photo_path(str(image_id)).unlink(missing_ok=True)
+        except OSError:
+            import logging
+            logging.getLogger(__name__).exception('Failed to remove research capture %s',image_id)
     return {'deleted':True,'id':run_id}
 
 async def detail(db,id,actor):
