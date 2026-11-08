@@ -61,6 +61,7 @@ async function configure(page,mode){
  await page.getByLabel('Ранний OCR',{exact:true}).fill('0');
  await page.getByLabel('Весь запуск',{exact:true}).fill('120000');
  await page.getByRole('tab',{name:'Камера',exact:true}).click();
+ await page.locator('#lab-panel-camera').getByLabel('На разных сторонах упаковки',{exact:true}).check();
 }
 test('canvas rotation preserves colored corner pixels and derives every preview from the original',async({page})=>{
  await fixture(page);
