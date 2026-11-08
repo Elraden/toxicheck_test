@@ -220,8 +220,12 @@ def measured_summary(run, tasks, events):
     peak=[t['metrics'].get('shared_process_rss_peak_bytes') for t in ocr]
     peak=[x for x in peak if isinstance(x,int)]
     winner=run['summary'].get('winning_task_id')
-    winning_ocr=next((t for t in ocr if str(t['id'])==str(winner)),None)
-    review=winning_ocr.get('quality_review') if winning_ocr else None
+    # The result actually used by the strategy is the winner; for unsuccessful
+    # OCR runs report the last attempted frame, never the best retrospectively.
+    representative=next((t for t in ocr if str(t['id'])==str(winner)),None)
+    if representative is None and ocr and run['outcome']!='valid_barcode':
+        representative=ocr[-1]
+    review=representative.get('quality_review') if representative else None
     reviewed=review is not None
     capture_processing=[e.get('details',{}).get('capture_ms') for e in browser if e['event_name']=='frame_evaluated']
     return dict(
