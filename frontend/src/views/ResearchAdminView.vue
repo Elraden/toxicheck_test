@@ -6,19 +6,24 @@ import { refreshSession } from '@/services/userSession';
 import { researchWrite, photoUrl, duration, stageNames, validationNames, answerNames, attemptNames,
   type Study, type RunSummary, type ResearchRun, type Validation } from '@/services/research';
 import '@/research.css';
+import ResearchAssignmentsAdmin from '@/components/ResearchAssignmentsAdmin.vue';
 
 const router = useRouter();
 const authorized = ref(false), busy = ref(false), error = ref(''), message = ref('');
 const studies = ref<Study[]>([]), rows = ref<RunSummary[]>([]), total = ref(0), offset = ref(0);
 const studyId = ref(''), participantId = ref(''), caseId = ref(''), stage = ref(''), validationStatus = ref(''), since = ref(''), until = ref(''), errorsOnly = ref(false);
-const title = ref(''), scenario = ref('comparison'), protocol = ref('1');
+const title = ref(''), scenario = ref('comparison'), protocol = ref('2');
 const instruction = ref('Изучите полный состав продукта. Обратите внимание на E-добавки и незнакомые ингредиенты. Определите, присутствуют ли E-добавки из ваших исключений, в том числе под альтернативными названиями.');
 const detail = ref<ResearchRun | null>(null), reveal = ref(false), linkCase = ref('');
 const review = ref<Validation | null>(null), codes = ref(''), includePhotos = ref(false);
 const filterQuery = computed(() => {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries({ study_id: studyId.value, participant_id: participantId.value, case_id: caseId.value,
+  for (const [key, value] of Object.entries({ study_id: studyId.value, case_id: caseId.value,
     stage: stage.value, validation: validationStatus.value })) if (value) params.set(key, value);
+  if(participantId.value){
+    const number=participantId.value.match(/^(?:P-)?(\d+)$/i);
+    params.set(number?'participant_number':'participant_id',number?String(Number(number[1])):participantId.value);
+  }
   if (since.value) params.set('since', new Date(since.value).toISOString());
   if (until.value) params.set('until', new Date(`${until.value}T23:59:59.999`).toISOString());
   if (errorsOnly.value) params.set('errors', 'true');
@@ -114,10 +119,11 @@ onMounted(initialize);
     <p v-if="busy" role="status">Выполняем запрос…</p><p v-if="error" role="alert" class="research-error">{{ error }}</p><p v-if="message" role="status" class="research-note">{{ message }}</p>
     <p v-if="!authorized && !busy">Для просмотра нужен <RouterLink to="/app/admin">вход администратора</RouterLink>. <button @click="initialize">Проверить доступ</button></p>
     <template v-if="authorized">
+      <ResearchAssignmentsAdmin v-if="!detail" :studies="studies" />
       <template v-if="detail">
         <button :disabled="busy" @click="detail = null; task(() => loadRows(false))">← К списку проверок</button>
         <section class="research-card"><h2>{{ detail.case_title }}</h2><p>{{ detail.study_title }} · {{ stageNames[detail.stage] }}</p>
-          <p class="muted research-prewrap">Проверка: {{ detail.id }}<br>Участник: {{ detail.participant_id }}<br>Этикетка: {{ detail.case_id }}<br>Протокол: {{ detail.protocol_version }}</p>
+          <p class="muted research-prewrap">Проверка: {{ detail.id }}<br>Участник: P-{{ String(detail.participant_number).padStart(6,"0") }} ({{ detail.participant_id }})<br>Этикетка: {{ detail.case_id }}<br>Протокол: {{ detail.protocol_version }}</p>
           <p>Ручной этап: {{ duration(detail.manual_duration_ms) }} · ToxiCheck: {{ duration(detail.app_duration_ms) }}</p>
           <p>Исключения: {{ detail.exclusions.map(x => x.e_code).join(', ') || 'Нет' }}</p>
         </section>
@@ -151,20 +157,21 @@ onMounted(initialize);
             <template v-if="reveal"><p>Найдены E-коды: {{ attempt.result?.app_detected_e_codes.join(', ') || 'Нет' }}</p><p>Совпали с исключениями: {{ attempt.result?.matched_restrictions.join(', ') || 'Нет' }}</p><pre>{{ JSON.stringify(attempt.result, null, 2) }}</pre></template>
           </details>
         </section>
+        <section v-if="detail.barcode_attempts?.length" class="research-card"><h2>Проверка штрихкода</h2><p>Длительность этапа: {{duration(detail.barcode_duration_ms)}}</p><details v-for="attempt in detail.barcode_attempts" :key="attempt.id"><summary>{{attempt.status}} · {{attempt.barcode||'Код не найден'}} · {{duration(attempt.total_ms)}}</summary><pre>{{JSON.stringify(attempt,null,2)}}</pre></details></section>
         <details class="research-card"><summary>Связать с другой проверкой той же этикетки</summary><p>Только после сравнения фотографий. Один штрихкод не гарантирует одинаковый состав.</p><label>case_id существующей этикетки<input v-model="linkCase"></label><button :disabled="busy" @click="link">Связать</button></details>
         <details class="research-card"><summary>Журнал изменений</summary><div v-for="event in detail.audit" :key="event.id" class="research-list-row"><span>{{ event.event }}<small>{{ new Date(event.created_at).toLocaleString('ru') }} · {{ event.actor_id }}</small></span><details><summary>Подробности</summary><pre>{{ JSON.stringify(event.details, null, 2) }}</pre></details></div></details>
       </template>
       <template v-else>
         <details class="research-card"><summary>Исследования и ссылки участникам</summary>
-          <div v-for="item in studies" :key="item.id" class="research-card"><h3>{{ item.title }}</h3><p>{{ item.scenario === 'comparison' ? 'Ручная проверка → OCR → разметка' : 'OCR → разметка' }} · версия {{ item.protocol_version }}</p><p class="research-prewrap">{{ item.instruction }}</p><label>Ссылка участнику<input :value="shareLink(item.id)" readonly @focus="($event.target as HTMLInputElement).select()"></label><button :disabled="busy" @click="toggleStudy(item)">{{ item.is_open ? 'Закрыть для новых участников' : 'Открыть участие' }}</button></div>
+          <div v-for="item in studies" :key="item.id" class="research-card"><h3>{{ item.title }}</h3><p>{{ item.scenario === 'comparison' ? 'Ручная проверка → OCR → разметка' : 'OCR → разметка' }} · версия {{ item.protocol_version }}</p><p class="research-prewrap">{{ item.instruction }}</p><p>Выдайте персональную ссылку в разделе «Участники, задания и персональные ссылки».</p><button :disabled="busy" @click="toggleStudy(item)">{{ item.is_open ? 'Закрыть для новых участников' : 'Открыть участие' }}</button></div>
           <form class="research-form" @submit.prevent="createStudy"><h2>Новое исследование</h2><label>Название<input v-model="title" maxlength="200" required></label><label>Сценарий<select v-model="scenario"><option value="comparison">Ручная проверка → OCR → разметка</option><option value="ocr_quality">OCR → разметка</option></select></label><label>Версия протокола<input v-model="protocol" maxlength="40" required></label><label>Инструкция участнику<textarea v-model="instruction" maxlength="10000" required></textarea></label><p class="muted">Для изменения условий создайте новую версию исследования. Условия начатых проверок сохраняются.</p><button class="research-primary" :disabled="busy">Создать исследование</button></form>
         </details>
         <form class="research-card research-form" @submit.prevent="task(() => loadRows())"><h2>Проверки участников</h2>
-          <div class="research-grid"><label>Исследование<select v-model="studyId"><option value="">Все</option><option v-for="item in studies" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>Этап<select v-model="stage"><option value="">Все</option><option v-for="(name,key) in stageNames" :key="key" :value="key">{{ name }}</option></select></label><label>Проверка эталона<select v-model="validationStatus"><option value="">Все</option><option v-for="(name,key) in validationNames" :key="key" :value="key">{{ name }}</option></select></label><label>ID участника<input v-model="participantId" placeholder="Все участники"></label><label>case_id<input v-model="caseId" placeholder="Все этикетки"></label><label>С даты<input v-model="since" type="date"></label><label>По дату<input v-model="until" type="date"></label></div>
+          <div class="research-grid"><label>Исследование<select v-model="studyId"><option value="">Все</option><option v-for="item in studies" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>Этап<select v-model="stage"><option value="">Все</option><option v-for="(name,key) in stageNames" :key="key" :value="key">{{ name }}</option></select></label><label>Проверка эталона<select v-model="validationStatus"><option value="">Все</option><option v-for="(name,key) in validationNames" :key="key" :value="key">{{ name }}</option></select></label><label>Номер или ID участника<input v-model="participantId" placeholder="Все участники"></label><label>case_id<input v-model="caseId" placeholder="Все этикетки"></label><label>С даты<input v-model="since" type="date"></label><label>По дату<input v-model="until" type="date"></label></div>
           <label class="research-check"><input v-model="errorsOnly" type="checkbox">Только с ошибками, прерываниями или повторными снимками</label><button :disabled="busy">Применить фильтры</button>
         </form>
         <p>Найдено проверок: {{ total }}</p>
-        <button v-for="row in rows" :key="row.id" class="research-card research-choice" style="width:100%" :disabled="busy" @click="openRun(row.id)"><strong>{{ row.case_title }}</strong><span>{{ row.study_title }} · {{ stageNames[row.stage] }} · {{ validationNames[row.validation_status || 'unreviewed'] }}</span><small>Участник {{ row.participant_id }} · {{ new Date(row.created_at).toLocaleString('ru') }} · Фото: {{ row.photo_count }}</small></button>
+        <button v-for="row in rows" :key="row.id" class="research-card research-choice" style="width:100%" :disabled="busy" @click="openRun(row.id)"><strong>{{ row.case_title }}</strong><span>{{ row.study_title }} · {{ stageNames[row.stage] }} · {{ validationNames[row.validation_status || 'unreviewed'] }}</span><small>Участник P-{{ String(row.participant_number).padStart(6,"0") }} · {{ new Date(row.created_at).toLocaleString('ru') }} · Фото: {{ row.photo_count }}</small></button>
         <div class="research-actions"><button :disabled="busy || offset === 0" @click="offset -= 30; task(() => loadRows(false))">Предыдущие</button><span>{{ total ? offset + 1 : 0 }}–{{ Math.min(offset + 30, total) }} из {{ total }}</span><button :disabled="busy || offset + 30 >= total" @click="offset += 30; task(() => loadRows(false))">Следующие</button></div>
         <section class="research-card"><h2>Выгрузка по выбранным фильтрам</h2><p>ZIP: CSV, Excel, полные данные JSON и список фотографий. Итоговые метрики рассчитываются после выгрузки.</p><label class="research-check"><input v-model="includePhotos" type="checkbox">Включить исходные фотографии</label><button class="research-primary" :disabled="busy" @click="exportData">Скачать архив</button></section>
       </template>

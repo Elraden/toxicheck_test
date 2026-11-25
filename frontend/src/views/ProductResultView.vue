@@ -305,6 +305,7 @@ const compositionText = computed(() => {
 
 const hasCompositionData = computed(() => Boolean(compositionText.value));
 const ocrRecord = computed(() => isRecord(responseRoot.value?.ocr) ? responseRoot.value.ocr : null);
+const ocrHazards = computed(() => getArray(ocrRecord.value, 'flagged_hazards').filter(isRecord));
 const fallbackRequestId = crypto.randomUUID();
 const correctionRequestId = computed(() => getString(ocrRecord.value, 'request_id') || fallbackRequestId);
 const needsConfirmation = computed(() => !!ocrRecord.value && ocrRecord.value.status !== 'success'
@@ -380,7 +381,7 @@ async function runAnalysis(): Promise<void> {
   try {
     await loadPersonalPreferences();
     if (controller.signal.aborted) return;
-    const result = await analyzeIngredients(compositionText.value, personalExclusions.value, controller.signal);
+    const result = await analyzeIngredients(compositionText.value, personalExclusions.value, controller.signal, ocrRecord.value && ocrRecord.value.composition_confirmed !== true ? 'ocr' : 'label');
     if (!controller.signal.aborted) analysis.value = result;
   } catch (error) {
     if (!controller.signal.aborted) {
@@ -533,6 +534,14 @@ onBeforeUnmount(() => {
         </details>
         <p v-if="needsConfirmation" class="result-state">Состав распознан неуверенно. Оценка пока недоступна.</p>
 
+        <section v-if="ocrHazards.length" class="risk-card risk-card--warning" role="alert">
+          <h2>Проверьте E-коды на этикетке</h2>
+          <p>OCR заметил обозначения, которые могут соответствовать добавкам с ограничениями. Сверьте текст с упаковкой, особенно если фотография нечёткая.</p>
+          <p v-for="(flag,index) in ocrHazards" :key="index">
+            «{{flag.tokenRaw}}» — {{flag.certainty==='needs_verification'?'возможно, ':''}}
+            <RouterLink :to="{name:'ingredient',params:{id:String(flag.ingredientId)}}">{{flag.eCode}} {{flag.name}}</RouterLink>
+          </p>
+        </section>
         <div v-if="analysisLoading" class="result-state" role="status">Проверяем состав по справочнику...</div>
         <div v-else-if="analysisError" class="result-state result-state--error" role="alert">
           <p>{{ analysisError }}</p>
@@ -592,6 +601,7 @@ onBeforeUnmount(() => {
               </span>
 
 
+              <p v-if="item.matchedBy === 'similarity'" class="ingredient-evidence">Возможное совпадение для «{{item.rawText}}». Сверьте с этикеткой.</p>
               <details v-if="item.rules.length" class="ingredient-evidence">
                 <summary>Правила и источники ({{ item.rules.length }})</summary>
                 <p v-if="item.matchedBy === 'similarity'">Приблизительное совпадение: {{ item.rawText }}</p>

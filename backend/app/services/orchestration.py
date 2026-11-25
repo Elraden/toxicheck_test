@@ -13,6 +13,7 @@ from sqlalchemy import text
 from app.db.session import AnnotationSessionLocal, CatalogSessionLocal
 from app.core.config import settings
 from app.services.ocr_service import OcrService
+from app.services.ocr_catalog import process_ocr_result
 from app.services.orchestration_resources import OCRResourceMonitor
 from app.services.composition_cleaner import is_probable_composition_text
 from app.services.analysis_service import AnalysisService
@@ -90,7 +91,11 @@ async def perform(task_id, run_id, kind, value, lookup_ms):
                     log.warning('Worker start persistence unavailable task_id=%s type=%s',task_id,type(exc).__name__)
             ocr = MeasuredOCR(started)
             result_model = await ocr.recognize_image(value, source='orchestration:' + str(task_id))
+            async with CatalogSessionLocal() as catalog_db:
+                ocr_analysis = await process_ocr_result(catalog_db, result_model, AnalysisPreferences(), task_id)
             result = result_model.model_dump(mode='json', by_alias=True)
+            if ocr_analysis is not None:
+                result['analysis'] = ocr_analysis.model_dump(mode='json', by_alias=True)
             composition = result_model.composition_text
             ok = sufficient(result_model.status, composition)
             metrics['input_bytes'] = len(base64.b64decode(value.split(',')[-1]))
@@ -118,7 +123,7 @@ async def perform(task_id, run_id, kind, value, lookup_ms):
                     ok = response.status_code == 200 and same and sufficient('success',composition)
                     result = {'status':'success' if ok else 'insufficient', 'product':product,
                               'ingredientsText':composition, 'http_status':response.status_code}
-        if ok:
+        if ok and kind!='ocr':
             result['analysis'] = await analyze(composition)
     except Exception as exc:
         ok = False

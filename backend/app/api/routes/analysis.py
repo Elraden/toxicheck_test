@@ -13,7 +13,8 @@ async def analyze_ingredients(
     payload: AnalyzeIngredientsRequest,
     session: AsyncSession = Depends(get_catalog_session),
 ) -> AnalyzeIngredientsResponse:
-    service = AnalysisService(session)
+    from app.services.ocr_catalog import OcrIngredientResolver
+    service = AnalysisService(session, resolver=OcrIngredientResolver(session) if payload.source=="ocr" else None)
 
     return await service.analyze(
         ingredients_text=payload.ingredients_text,

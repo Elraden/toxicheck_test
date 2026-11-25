@@ -12,8 +12,8 @@ from app.services.normalization import split_ingredients_text
 
 
 class AnalysisService:
-    def __init__(self, session: AsyncSession) -> None:
-        self.resolver = IngredientResolver(session)
+    def __init__(self, session: AsyncSession, resolver: IngredientResolver | None = None) -> None:
+        self.resolver = resolver or IngredientResolver(session)
         self.verdict_engine = VerdictEngine()
 
     async def analyze(

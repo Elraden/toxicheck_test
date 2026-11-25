@@ -22,14 +22,21 @@ def cell(value):
 
 
 def sheets(details):
-    output = {key: [] for key in ('runs', 'answers', 'attempts', 'photos', 'validations', 'audit')}
+    output = {key: [] for key in ('runs', 'answers', 'attempts', 'photos', 'validations', 'audit', 'barcode_attempts', 'satisfaction')}
+    rated = set()
     for run in details:
-        output['runs'].append({k: v for k, v in run.items() if k not in ('photos', 'attempts', 'audit', 'validation', 'manual_answers', 'app_answers')})
+        output['runs'].append({k: v for k, v in run.items() if k not in ('photos', 'attempts', 'audit', 'validation', 'manual_answers', 'app_answers', 'barcode_attempts', 'satisfaction')})
         for method in ('manual', 'app'):
             for code, answer in run.get(f'{method}_answers', {}).items():
                 output['answers'].append({'run_id': run['id'], 'method': method, 'e_code': code, 'answer': answer})
         for kind in ('attempts', 'photos', 'audit'):
             output[kind].extend({'run_id': run['id'], **item} for item in run[kind])
+        output['barcode_attempts'].extend({'run_id':run['id'],'participant_id':run.get('participant_id'),
+            'participant_number':run.get('participant_number'),**item} for item in run.get('barcode_attempts',[]))
+        rating=run.get('satisfaction')
+        if rating and rating['participant_id'] not in rated:
+            rated.add(rating['participant_id'])
+            output['satisfaction'].append({'participant_number':run.get('participant_number'),**rating})
         if run['validation']:
             output['validations'].append(run['validation'])
     return output

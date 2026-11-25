@@ -5,6 +5,7 @@ import { request } from '@/services/http';
 import { ensureGuestSession } from '@/services/userSession';
 import { getIngredient, type IngredientDetail } from '@/services/backendApi';
 import { rulePresentation } from '@/services/ingredientPresentation';
+import ResearchBarcode from '@/components/ResearchBarcode.vue';
 import ResearchAnswers from '@/components/ResearchAnswers.vue';
 import { researchWrite, photoUrl, fileData, duration, stageNames, attemptNames, type Answers, type Attempt, type ResearchRun } from '@/services/research';
 import '@/research.css';
@@ -31,6 +32,7 @@ const chosen = computed(() => run.value?.attempts.find(item => item.id === selec
 const answered = computed(() => codes.value.every(code => answers.value[code]));
 const step = computed(() => {
   const stage = run.value?.stage || '';
+  if(run.value?.barcode_required)return stage.startsWith('manual')?'Шаг 1 из 4 · Самостоятельная проверка':stage.startsWith('app')?'Шаг 2 из 4 · Проверка OCR':stage.startsWith('barcode')?'Шаг 3 из 4 · Проверка штрихкода':'Шаг 4 из 4 · Разметка состава';
   return stage.startsWith('manual') ? 'Шаг 1 из 3 · Самостоятельная проверка' : stage.startsWith('app') ?
     (run.value?.scenario === 'comparison' ? 'Шаг 2 из 3 · Проверка ToxiCheck' : 'Шаг 1 из 2 · Проверка OCR') : 'Разметка состава';
 });
@@ -168,6 +170,10 @@ onBeforeUnmount(() => { clearInterval(ticker); clearTimeout(draftTimer); });
     <p v-if="busy" role="status">Выполняем запрос…</p>
     <template v-if="run">
       <h1>{{ step }}</h1>
+      <p v-if="run.participant_number">Участник P-{{String(run.participant_number).padStart(6,'0')}}</p>
+      <RouterLink v-if="run.enrollment_id" :to="{name:'research-tasks',params:{enrollmentId:run.enrollment_id}}">Мои задания и прогресс</RouterLink>
+      <section v-if="run.stage==='barcode_ready'" class="research-card"><p>Теперь отдельно проверьте штрихкод того же товара. Результаты предыдущих этапов сохранены.</p><button :disabled="busy" @click="stage('start_barcode')">Перейти к проверке штрихкода</button></section>
+      <template v-if="run.stage==='barcode_active'"><p v-if="run.barcode_started_at" class="research-timer">Время этапа: {{duration(Math.max(0,now-Date.parse(run.barcode_started_at)))}}</p><ResearchBarcode :run-id="run.id" :attempts="run.barcode_attempts||[]" @updated="load" /><button class="research-primary" :disabled="busy||!run.barcode_attempts?.length||run.barcode_attempts.some(a=>['scanning','lookup'].includes(a.status))" @click="stage('finish_barcode')">Завершить Barcode и перейти к разметке</button></template>
       <p v-if="active" class="research-timer">Время задания: {{ clock }}</p>
       <p class="muted" v-if="active">Таймер продолжает идти при поиске в интернете и переходе в другую вкладку. Точное время фиксируется при завершении на сервере.</p>
       <div v-if="run.stage === 'manual_ready' || run.stage === 'app_ready'" class="research-card">
@@ -222,7 +228,7 @@ onBeforeUnmount(() => { clearInterval(ticker); clearTimeout(draftTimer); });
         <label class="research-check"><input v-model="skip" type="checkbox" :disabled="busy">Пропустить разметку</label>
         <button class="research-primary" :disabled="busy">Сохранить и завершить исследование</button>
       </form>
-      <section v-if="['completed','aborted'].includes(run.stage)" class="research-card"><h2>{{ run.stage === 'completed' ? 'Спасибо за участие!' : 'Проверка прервана' }}</h2><p>Сохранённые этапы доступны команде исследования.</p><p>Ручная проверка: {{ duration(run.manual_duration_ms) }}. ToxiCheck: {{ duration(run.app_duration_ms) }}.</p><RouterLink :to="{ name: 'research' }">Проверить следующий продукт →</RouterLink></section>
+      <section v-if="['completed','aborted'].includes(run.stage)" class="research-card"><h2>{{ run.stage === 'completed' ? 'Спасибо за участие!' : 'Проверка прервана' }}</h2><p>Сохранённые этапы доступны команде исследования.</p><p>Ручная проверка: {{ duration(run.manual_duration_ms) }}. ToxiCheck: {{ duration(run.app_duration_ms) }}.</p><RouterLink :to="run.enrollment_id?{name:'research-tasks',params:{enrollmentId:run.enrollment_id}}:{name:'research'}">К заданиям и итоговой оценке →</RouterLink></section>
       <details v-else class="research-card"><summary>Завершить участие досрочно</summary><p>Уже сохранённые данные останутся в исследовании. Проверка будет отмечена как прерванная.</p><button class="research-danger" :disabled="busy" @click="stage('abort')">Прервать эту проверку</button></details>
     </template>
   </section>

@@ -9,6 +9,7 @@ from app.db.session import get_catalog_session
 from app.main import create_app
 from app.schemas.ocr import OcrResult
 from app.services.ingredient_resolver import IngredientResolver
+from app.services.ocr_catalog import OcrIngredientResolver
 from app.services.normalization import normalize_e_code, split_ingredients_text
 from app.services.ocr_service import OcrService, _embedded_lock
 
@@ -77,7 +78,8 @@ class OcrCatalogRouteTests(unittest.TestCase):
              patch.object(IngredientResolver, "_match_codes", new_callable=AsyncMock, return_value={}), \
              patch.object(IngredientResolver, "_match_aliases", new_callable=AsyncMock,
                           return_value={"фруктоза": row}) as aliases, \
-             patch.object(IngredientResolver, "_load_rules", new_callable=AsyncMock, return_value={}):
+             patch.object(IngredientResolver, "_load_rules", new_callable=AsyncMock, return_value={}), \
+             patch.object(OcrIngredientResolver, "_candidates", new_callable=AsyncMock, return_value={}):
             ocr.return_value = OcrResult(status="success", compositionText="фруктоза, неизвестный")
             for source in ("browser_camera", "native_camera"):
                 response = client.post("/api/scan/composition", json={

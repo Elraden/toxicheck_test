@@ -18,6 +18,8 @@ from app.services.identity import Principal
 from app.services.research_service import ResearchService, encoded, catalog_fingerprint
 from app.services.research_storage import decode_photo, photo_path, store_photo, prepared_image
 from app.services.ocr_service import OcrService
+from app.services.ocr_catalog import process_ocr_result
+from app.schemas.ocr import OCR_VERSION
 from app.services.analysis_service import AnalysisService
 
 router = APIRouter()
@@ -42,6 +44,11 @@ async def runs(user: Principal = Depends(guest_user), db: AsyncSession = Depends
 async def create_run(payload: RunInput, user: Principal = Depends(guest_write), db: AsyncSession = Depends(get_annotation_session)):
     await throttle('research-create:' + str(user.user.id), 30, 3600)
     async with db.begin():
+        if not payload.assignment_id:
+            existing=await db.scalar(text('SELECT id FROM research.runs WHERE id=:id'),dict(id=payload.id))
+            if existing:
+                return await ResearchService(db).detail(payload.id,user.user.id)
+            raise HTTPException(422,'Для нового задания откройте персональную ссылку организатора.')
         return await ResearchService(db).create(user.user.id, payload)
 
 
@@ -113,7 +120,7 @@ async def analyze_photo(run_id: UUID, payload: AttemptInput, user: Principal = D
         await db.execute(text('''INSERT INTO research.attempts(id,run_id,photo_id,status,app_version,pipeline_version,catalog_version,capture_source)
             VALUES(:id,:run,:photo,'processing',:app,:pipeline,'pending',:source)'''),
             dict(id=payload.id, run=run_id, photo=payload.photo_id, app=settings.research_app_version,
-                 pipeline=settings.research_pipeline_version, source=payload.capture_source))
+                 pipeline=OCR_VERSION, source=payload.capture_source))
     # The attempt is committed before the expensive operation. A process crash leaves a recoverable record.
     status, error, result, fingerprint = 'error', None, None, 'unavailable'
     try:
@@ -126,17 +133,20 @@ async def analyze_photo(run_id: UUID, payload: AttemptInput, user: Principal = D
         error = None if status == 'success' else (ocr.message or 'Состав не распознан')
         if status == 'success' and not (ocr.composition_text or '').strip():
             status, error = 'needs_retake', 'Состав не определён'
-        if status == 'success':
+        if status in ('success','needs_retake'):
             async with db.begin():
                 await db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'))
                 if not await db.scalar(text('SELECT EXISTS(SELECT 1 FROM catalog.ingredients WHERE is_active)')):
                     raise HTTPException(503, 'Справочник ингредиентов пока не загружен.')
                 fingerprint = await catalog_fingerprint(db)
                 result['rules_evaluated_on'] = str(await db.scalar(text('SELECT CURRENT_DATE')))
-                analysis = await AnalysisService(db).analyze(ocr.composition_text, AnalysisPreferences(
-                    excludedIngredientIds=[item['ingredient_id'] for item in run['exclusions']]))
-                result['analysis'] = analysis.model_dump(mode='json', by_alias=True)
-                codes = sorted({item.code.upper() for item in analysis.matched if item.code})
+                analysis = await process_ocr_result(db, ocr, AnalysisPreferences(
+                    excludedIngredientIds=[item['ingredient_id'] for item in run['exclusions']]), payload.id)
+                result['flagged_hazards'] = [f.model_dump(mode='json', by_alias=True) for f in ocr.flagged_hazards]
+                result['engine_version'] = ocr.engine_version
+                result['queued_for_review'] = ocr.queued_for_review
+                result['analysis'] = analysis.model_dump(mode='json', by_alias=True) if analysis else None
+                codes = sorted({item.code.upper() for item in analysis.matched if item.code}) if analysis else []
                 result['app_detected_e_codes'] = codes
                 result['matched_restrictions'] = sorted(set(codes) & {item['e_code'] for item in run['exclusions']})
     except HTTPException as exc:

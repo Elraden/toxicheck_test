@@ -59,6 +59,9 @@ export const router = createRouter({
     path: "/app",
     component: AppLayout,
     children: [
+      {path:'research/invitation',name:'research-invitation',component:()=>import('./views/ResearchTasksView.vue')},
+      {path:'research/tasks/:enrollmentId',name:'research-tasks',component:()=>import('./views/ResearchTasksView.vue')},
+      { path: "admin/ocr-review", name: "ocr-review", component: () => import("@/views/OcrReviewView.vue") },
       { path: 'admin', name: 'admin', component: AdminView },
       { path: 'admin/orchestration', name: 'orchestration', component: () => import('./views/OrchestrationExperimentView.vue') },
       { path: 'research', alias: '/research', name: 'research', component: () => import('./views/ResearchView.vue') },

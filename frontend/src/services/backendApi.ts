@@ -53,10 +53,10 @@ export type PreferenceIngredient = {
   legacy_ids: string[];
 };
 
-export function analyzeIngredients(ingredientsText: string, excludedIngredientIds: string[], signal?: AbortSignal) {
+export function analyzeIngredients(ingredientsText: string, excludedIngredientIds: string[], signal?: AbortSignal, source: 'label' | 'ocr' = 'label') {
   return request<IngredientAnalysis>('/analysis', {
     method: 'POST', signal,
-    body: JSON.stringify({ ingredientsText, preferences: { excludedIngredientIds } })
+    body: JSON.stringify({ ingredientsText, source, preferences: { excludedIngredientIds } })
   });
 }
 
@@ -105,7 +105,13 @@ export function getIngredient(id: string, signal?: AbortSignal) {
   return request<IngredientDetail>(`/ingredients/${encodeURIComponent(id)}`, { signal });
 }
 
+export type OcrHazard = {tokenRaw:string;eCode:string;name:string;ingredientId:string;certainty:'high'|'needs_verification';citations:string[]};
 export type CompositionScanResponse = {
+  flaggedHazards?: OcrHazard[];
+  queuedForReview?: number;
+  reviewQueueStatus?: string;
+  engineVersion?: string;
+  analysis?: IngredientAnalysis | null;
   requestId?: string | null;
   tokens?: string[];
   jobId?: string | null;
