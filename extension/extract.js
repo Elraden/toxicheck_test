@@ -11,11 +11,11 @@
     let body=marker?s.slice(marker.index+marker[0].length):s.replace(/^(?:состав(?:\s+продукта)?|ингредиенты|ingredients)\s*[:：]?\s*\n/i,'');
     const boundary=body.search(end);
     if(boundary>=0)body=body.slice(0,boundary);
-    return body.replace(/\s+/g,' ').trim().slice(0,20000);
+    return body.replace(/\s+/g,' ').trim().replace(/[.;]+$/, '').trim().slice(0,20000);
   }
   function plausible(text){
-    return text.length>=8 && text.length<=3000 && /[а-яёa-z]/i.test(text) &&
-      !heading.test(text) && !/^(?:состав не указан|нет информации|не указан|не указано|подробнее|показать ещё|показать еще)$/i.test(text);
+    return text.length>=3 && text.length<=3000 && /[а-яёa-z]/i.test(text) &&
+      !heading.test(text) && !/^(?:описание|характеристики|отзывы|доставка|купить)$/i.test(text) && !/^(?:состав не указан|нет информации|не указан|не указано|подробнее|показать ещё|показать еще)$/i.test(text);
   }
   function visible(el){
     return !!el && !el.closest('[hidden],[aria-hidden="true"],script,style,nav,footer,header') && el.getClientRects().length>0 && getComputedStyle(el).visibility!=='hidden';
