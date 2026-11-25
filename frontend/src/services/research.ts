@@ -13,7 +13,9 @@ export type Attempt = {
     app_detected_e_codes: string[]; matched_restrictions: string[] } | null;
 };
 export type Validation = { revision: number; status: string; verified_label_text: string; ground_truth_e_codes: string[]; comment: string; reviewer_id: string | null; updated_at: string };
+export type BarcodeAttempt = {id:string;status:string;barcode:string|null;error:string|null;detection_ms:number|null;lookup_ms:number|null;total_ms:number|null;result?:{productName?:string;message?:string;ingredientsText?:string;analysis?:IngredientAnalysis}|null};
 export type ResearchRun = {
+  participant_number?:number;enrollment_id?:string|null;barcode_required?:boolean;barcode_started_at?:string|null;barcode_duration_ms?:number|null;barcode_attempts?:BarcodeAttempt[];
   id: string; study_id: string; participant_id: string; case_id: string; scenario: string; stage: string;
   revision: number; instruction: string; protocol_version: string; created_at: string;
   exclusions: { ingredient_id: string; e_code: string }[];
@@ -25,7 +27,7 @@ export type ResearchRun = {
   case_title?: string; study_title?: string;
 };
 export type RunSummary = Pick<ResearchRun, 'id' | 'stage' | 'scenario' | 'created_at'> & {
-  title?: string; case_title?: string; study_title: string; participant_id?: string; case_id?: string; validation_status?: string; photo_count?: number;
+  title?: string; case_title?: string; study_title: string; participant_number?:number; participant_id?: string; case_id?: string; validation_status?: string; photo_count?: number;
 };
 
 export async function researchWrite<T>(path: string, body: unknown = {}, admin = false, method = 'POST'): Promise<T> {
@@ -40,6 +42,7 @@ export function photoUrl(runId: string, photoId: string, admin = false) {
 
 export const stageNames: Record<string, string> = {
   manual_ready: 'Перед ручной проверкой', manual_active: 'Ручная проверка', app_ready: 'Перед ToxiCheck',
+  barcode_ready:'Перед проверкой штрихкода',barcode_active:'Проверка штрихкода',
   app_active: 'Проверка ToxiCheck', labeling: 'Разметка состава', completed: 'Завершено', aborted: 'Прервано'
 };
 export const validationNames: Record<string, string> = {

@@ -43,6 +43,11 @@ def transition(run: dict, payload: StageInput, now: datetime) -> dict:
         if stage in ('completed', 'aborted'):
             raise HTTPException(409, 'Проверка уже завершена.')
         return {'stage': 'aborted', 'error_reason': payload.reason or 'Прервано участником'}
+    if action == 'start_barcode' and stage == 'barcode_ready' and run.get('barcode_required'):
+        return {'stage': 'barcode_active', 'barcode_started_at': now}
+    if action == 'finish_barcode' and stage == 'barcode_active':
+        return {'stage': 'labeling', 'barcode_finished_at': now,
+                'barcode_duration_ms': max(0,round((now-run['barcode_started_at']).total_seconds()*1000))}
     if valid.get(action) != stage:
         raise HTTPException(409, 'Этот шаг сейчас недоступен.')
     if action.startswith(('save_', 'finish_')):
@@ -60,7 +65,7 @@ def transition(run: dict, payload: StageInput, now: datetime) -> dict:
                 raise HTTPException(422, 'Укажите, использовали ли поиск в интернете.')
             changes.update({f'{method}_finished_at': now,
                             f'{method}_duration_ms': max(0, round((now - run[f'{method}_started_at']).total_seconds() * 1000)),
-                            'stage': 'app_ready' if method == 'manual' else 'labeling'})
+                            'stage': 'app_ready' if method == 'manual' else ('barcode_ready' if run.get('barcode_required') else 'labeling')})
             if method == 'app':
                 changes['selected_attempt_id'] = payload.selected_attempt_id
         return changes
@@ -86,7 +91,10 @@ class ResearchService:
     async def owned(self, run_id, user_id, lock=False):
         row = (await self.db.execute(text('''SELECT r.* FROM research.runs r
             JOIN research.participants p ON p.id=r.participant_id
-            WHERE r.id=:id AND p.user_id=:user''' + (' FOR UPDATE OF r' if lock else '')),
+            WHERE r.id=:id AND ((p.user_id=:user AND NOT EXISTS (SELECT 1 FROM research.assignments legacy_check WHERE legacy_check.run_id=r.id)) OR EXISTS (
+             SELECT 1 FROM research.assignments a JOIN research.invitations i ON i.enrollment_id=a.enrollment_id
+             JOIN research.access_grants g ON g.invitation_id=i.id
+             WHERE a.run_id=r.id AND g.user_id=:user AND i.revoked_at IS NULL AND i.expires_at>now()))''' + (' FOR UPDATE OF r' if lock else '')),
             dict(id=run_id, user=user_id))).mappings().first()
         if not row:
             raise HTTPException(404, 'Проверка не найдена.')
@@ -114,6 +122,16 @@ class ResearchService:
             row.pop('manual_answers', None)
             row.pop('app_answers', None)
         row['attempts'] = attempts
+        row['participant_number'] = await self.db.scalar(text('SELECT participant_number FROM research.participants WHERE id=:id'),dict(id=row['participant_id']))
+        row['enrollment_id'] = await self.db.scalar(text('SELECT enrollment_id FROM research.assignments WHERE run_id=:id'),dict(id=run_id))
+        row['barcode_attempts'] = [dict(item) for item in (await self.db.execute(text(
+            'SELECT * FROM research.barcode_attempts WHERE run_id=:id ORDER BY started_at,id'),dict(id=run_id))).mappings()]
+        if admin and not reveal:
+            for item in row['barcode_attempts']:
+                item.pop('result',None)
+        if admin:
+            rating=(await self.db.execute(text('SELECT * FROM research.satisfaction WHERE participant_id=:id'),dict(id=row['participant_id']))).mappings().first()
+            row['satisfaction']=dict(rating) if rating else None
         if admin:
             validation = (await self.db.execute(text('SELECT * FROM research.validations WHERE run_id=:id'), dict(id=run_id))).mappings().first()
             row['validation'] = dict(validation) if validation else None
@@ -123,6 +141,11 @@ class ResearchService:
         return row
 
     async def create(self, user_id, payload: RunInput):
+        if payload.assignment_id:
+            from app.services.research_access import assignment_run
+            run_id = await assignment_run(self.db,user_id,payload)
+            await self.audit(user_id,'assignment_opened',run_id)
+            return await self.detail(run_id,user_id)
         # Serialize concurrent creation/import against the same profile.
         await self.db.execute(text('SELECT id FROM public.users WHERE id=:id FOR UPDATE'), dict(id=user_id))
         previous = await self.db.scalar(text('SELECT id FROM research.runs WHERE id=:id'), dict(id=payload.id))
@@ -159,6 +182,10 @@ class ResearchService:
     async def change_stage(self, user_id, run_id, payload: StageInput):
         row = await self.owned(run_id, user_id, lock=True)
         changes = transition(row, payload, utcnow())
+        if payload.action == 'finish_barcode':
+            statuses=list((await self.db.scalars(text('SELECT status FROM research.barcode_attempts WHERE run_id=:id'),dict(id=run_id))).all())
+            if not statuses or any(s in ('scanning','lookup') for s in statuses):
+                raise HTTPException(409,'Завершите попытку проверки штрихкода или отметьте её прерывание.')
         if payload.action == 'finish_app':
             if not payload.selected_attempt_id:
                 raise HTTPException(422, 'Выберите попытку анализа, по которой отвечаете.')
@@ -167,6 +194,7 @@ class ResearchService:
             if not attempt or attempt['status'] == 'processing' or not attempt['displayed_at']:
                 raise HTTPException(422, 'Сначала дождитесь отображения результата анализа.')
         if payload.action == 'abort':
+            await self.db.execute(text("UPDATE research.barcode_attempts SET status='interrupted',finished_at=now(),total_ms=NULL WHERE run_id=:id AND status IN ('scanning','lookup')"),dict(id=run_id))
             await self.db.execute(text("UPDATE research.attempts SET status='interrupted',error='Проверка прервана',finished_at=now() WHERE run_id=:id AND status='processing'"), dict(id=run_id))
         params = {'id': run_id}
         setters = []

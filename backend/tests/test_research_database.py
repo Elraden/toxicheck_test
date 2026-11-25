@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.core.config import settings
+from app.db.initialize import SCHEMAS,DB_DIR
 from app.db.session import get_identity_session, get_annotation_session
 from app.main import create_app
 from app.schemas.ocr import OcrResult
@@ -37,7 +38,7 @@ class ResearchDatabaseTests(unittest.IsolatedAsyncioTestCase):
             async with engine.begin() as db:
                 raw = await db.get_raw_connection()
                 base = Path(__file__).resolve().parents[1] / 'db'
-                for path in (base / 'schema_catalog.sql', base / 'migrations/20261029_identity.sql', base / 'migrations/20261030_research.sql'):
+                for path in (DB_DIR/name for name in SCHEMAS):
                     await raw.driver_connection.execute(path.read_text(encoding='utf-8'))
                 # Reapply verifies idempotence.
                 await raw.driver_connection.execute((base / 'migrations/20261030_research.sql').read_text(encoding='utf-8'))
@@ -57,7 +58,10 @@ class ResearchDatabaseTests(unittest.IsolatedAsyncioTestCase):
             with tempfile.TemporaryDirectory() as folder, patch.object(settings, 'research_storage_dir', folder), \
                  patch.object(settings, 'app_env', 'local'), \
                  patch('app.api.routes.auth.throttle', new_callable=AsyncMock), \
-                 patch('app.api.routes.research.throttle', new_callable=AsyncMock):
+                 patch('app.api.routes.research.throttle', new_callable=AsyncMock), \
+                 patch('app.api.routes.research_assignments.throttle', new_callable=AsyncMock), \
+                 patch('app.api.routes.research_barcode.throttle', new_callable=AsyncMock), \
+                 patch('app.services.ocr_catalog.AnnotationSessionLocal', sessions):
                 transport = httpx.ASGITransport(app=app)
                 async with httpx.AsyncClient(transport=transport, base_url='http://test.local') as client, \
                            httpx.AsyncClient(transport=transport, base_url='http://test.local') as other:
@@ -74,10 +78,21 @@ class ResearchDatabaseTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(study.status_code, 200, study.text)
                     study_id = study.json()['id']
                     payload = {'id': str(uuid4()), 'study_id': study_id, 'title': '=Тестовая этикетка', 'consent': True}
-                    self.assertEqual((await client.post('/api/research/runs', headers=headers, json=payload)).status_code, 409)
+                    self.assertEqual((await client.post('/api/research/runs', headers=headers, json=payload)).status_code, 422)
+                    async def assigned_payload(study,exclusions):
+                        case=(await client.post('/api/admin/research/cases',headers=admin_headers,json={'title':'=Тестовая этикетка'})).json()
+                        e=await client.post('/api/admin/research/enrollments',headers=admin_headers,
+                            json={'id':str(uuid4()),'study_id':study,'case_ids':[case['id']],'exclusion_codes':exclusions})
+                        self.assertEqual(e.status_code,200,e.text)
+                        eid=e.json()['id']
+                        invite=(await client.post('/api/admin/research/enrollments/'+eid+'/invitation',headers=admin_headers,json={})).json()
+                        await client.post('/api/research/invitations/exchange',headers=headers,json={'token':invite['token']})
+                        details=(await client.get('/api/research/enrollments/'+eid)).json()
+                        return {**payload,'id':str(uuid4()),'study_id':study,'assignment_id':details['tasks'][0]['id']}
                     await client.put(f'/api/admin/research/studies/{study_id}/state', headers=admin_headers, json={'is_open': True})
                     self.assertEqual((await client.post('/api/research/runs', headers=headers, json=payload)).status_code, 422)
                     await client.put('/api/preferences/me', headers=headers, json={'excludedIngredientIds': [str(ingredient)], 'revision': 0})
+                    payload=await assigned_payload(study_id,['E202'])
                     created = await client.post('/api/research/runs', headers=headers, json=payload)
                     self.assertEqual(created.status_code, 200, created.text)
                     run = created.json(); id = run['id']; prefix = f'/api/research/runs/{id}'
@@ -127,6 +142,11 @@ class ResearchDatabaseTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual((await client.post(display_url, headers=headers, json={'app_e2e_ms': e2e})).status_code, 200)
                     self.assertEqual((await client.post(display_url, headers=headers, json={'app_e2e_ms': e2e+1})).status_code, 409)
                     await step('finish_app', answers={'E202': 'present'}, selected_attempt_id=attempt['id'])
+                    await step('start_barcode')
+                    bid=str(uuid4())
+                    await client.post(prefix+'/barcode/attempts',headers=headers,json={'id':bid})
+                    await client.post(prefix+'/barcode/attempts/'+bid+'/finish',headers=headers,json={'outcome':'no_code'})
+                    await step('finish_barcode')
                     await step('annotate', user_label_text='E202, вода')
                     self.assertEqual(run['stage'], 'completed')
                     admin_url = f'/api/admin/research/runs/{id}'
@@ -153,7 +173,7 @@ class ResearchDatabaseTests(unittest.IsolatedAsyncioTestCase):
                     second_study = (await client.post('/api/admin/research/studies', headers=admin_headers,
                         json={'title': 'OCR', 'instruction': 'Проверьте фото', 'scenario': 'ocr_quality'})).json()['id']
                     await client.put(f'/api/admin/research/studies/{second_study}/state', headers=admin_headers, json={'is_open': True})
-                    response = await client.post('/api/research/runs', headers=headers, json={**payload, 'id': str(uuid4()), 'study_id': second_study})
+                    response = await client.post('/api/research/runs', headers=headers, json=await assigned_payload(second_study,[]))
                     self.assertEqual(response.status_code, 200, response.text)
                     run = response.json(); id = run['id']; prefix = f'/api/research/runs/{id}'
                     self.assertEqual(run['stage'], 'app_ready')
@@ -172,7 +192,7 @@ class ResearchDatabaseTests(unittest.IsolatedAsyncioTestCase):
                     await step('annotate', skip_label=True)
                     self.assertEqual(run['labeling_status'], 'skipped')
                     filtered = await client.get('/api/admin/research/runs?errors=true&limit=1')
-                    self.assertEqual(filtered.json()['total'], 1)
+                    self.assertEqual(filtered.json()['total'], 2)
                     self.assertEqual(filtered.json()['items'][0]['id'], id)
         finally:
             await engine.dispose()

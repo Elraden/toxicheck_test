@@ -22,8 +22,10 @@ async def migrate(host: str, apply: bool):
                 print('Проверка выполнена. Для применения добавьте --apply.')
                 return
             raw = await db.get_raw_connection()
-            sql = Path(__file__).resolve().parents[2] / 'db/migrations/20261030_research.sql'
-            await raw.driver_connection.execute(sql.read_text(encoding='utf-8'))
+            await db.execute(text('SELECT pg_advisory_xact_lock(873024120)'))
+            base = Path(__file__).resolve().parents[2] / 'db/migrations'
+            for name in ('20261030_research.sql','20261125_research_assignments.sql'):
+                await raw.driver_connection.execute((base/name).read_text(encoding='utf-8'))
         print('Миграция исследования применена. Каталог не изменён.')
     finally:
         await engine.dispose()

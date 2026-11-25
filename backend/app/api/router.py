@@ -29,3 +29,11 @@ api_router.include_router(billing_router, prefix="/billing", tags=["billing"])
 
 from app.api.routes.orchestration import router as orchestration_router
 api_router.include_router(orchestration_router, prefix='/admin/orchestration', tags=['orchestration'])
+
+from app.api.routes.ocr_review import router as ocr_review_router
+api_router.include_router(ocr_review_router, prefix="/admin/ocr", tags=["ocr-review"])
+
+from app.api.routes.research_assignments import router as assignments_router
+from app.api.routes.research_barcode import router as barcode_research_router
+api_router.include_router(assignments_router, tags=['research'])
+api_router.include_router(barcode_research_router, tags=['research'])

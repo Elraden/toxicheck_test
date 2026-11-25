@@ -37,14 +37,19 @@ def filters(study_id=None, participant_id=None, case_id=None, stage=None, valida
         clauses.append('r.created_at<=:until')
         params['until'] = until
     if errors:
-        clauses.append("EXISTS(SELECT 1 FROM research.attempts a WHERE a.run_id=r.id AND a.status IN ('error','needs_retake','interrupted'))")
+        clauses.append("(EXISTS(SELECT 1 FROM research.attempts a WHERE a.run_id=r.id AND a.status IN ('error','needs_retake','interrupted')) OR EXISTS(SELECT 1 FROM research.barcode_attempts b WHERE b.run_id=r.id AND b.status NOT IN ('success','scanning','lookup')))")
     return ' AND '.join(clauses), params
 
 
 def query_filters(study_id: UUID | None = None, participant_id: UUID | None = None, case_id: UUID | None = None,
                   stage: str | None = None, validation: str | None = None,
-                  since: datetime | None = None, until: datetime | None = None, errors: bool = False):
-    return filters(study_id, participant_id, case_id, stage, validation, since, until, errors)
+                  since: datetime | None = None, until: datetime | None = None, errors: bool = False,
+                  participant_number: int | None = Query(None,ge=1)):
+    where, params = filters(study_id, participant_id, case_id, stage, validation, since, until, errors)
+    if participant_number is not None:
+        where += ' AND r.participant_id IN (SELECT id FROM research.participants WHERE participant_number=:number)'
+        params['number'] = participant_number
+    return where,params
 
 
 @router.get('/studies')
@@ -81,6 +86,7 @@ async def runs(query=Depends(query_filters), offset: int = Query(0, ge=0), limit
         total = await db.scalar(text('SELECT count(*) FROM research.runs r JOIN research.validations v ON v.run_id=r.id WHERE ' + where), params)
         rows = (await db.execute(text('''SELECT r.id,r.study_id,r.participant_id,r.case_id,r.scenario,r.stage,r.created_at,
             r.manual_duration_ms,r.app_duration_ms,r.labeling_status,c.title AS case_title,s.title AS study_title,v.status AS validation_status,
+            (SELECT participant_number FROM research.participants WHERE id=r.participant_id) AS participant_number,
             (SELECT count(*) FROM research.photos p WHERE p.run_id=r.id) AS photo_count
             FROM research.runs r JOIN research.validations v ON v.run_id=r.id
             JOIN research.cases c ON c.id=r.case_id JOIN research.studies s ON s.id=r.study_id

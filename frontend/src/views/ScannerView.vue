@@ -33,12 +33,13 @@ const route = useRoute();
 const router = useRouter();
 
 const scannerStore = useScannerStore();
+const galleryInput = ref<HTMLInputElement | null>(null);
 const nativeCameraInput =
   ref<HTMLInputElement | null>(null);
 const orientation = ref<'landscape' | 'portrait'>('landscape');
 const pendingImage = ref('');
 const preparingImage = ref(false);
-const pendingSource = ref<'browser_camera' | 'native_camera'>('browser_camera');
+const pendingSource = ref<'browser_camera' | 'native_camera' | 'gallery'>('browser_camera');
 let originalImage = '';
 let rotation = 0;
 let imageVersion = 0;
@@ -230,6 +231,10 @@ function createCompositionProduct(
     ocr: {
       request_id: result.requestId ?? crypto.randomUUID(),
       tokens: result.tokens ?? [],
+      flagged_hazards: result.flaggedHazards ?? [],
+      engine_version: result.engineVersion,
+      queued_for_review: result.queuedForReview ?? 0,
+      review_queue_status: result.reviewQueueStatus,
       status: result.status,
       capture_source:
         result.captureSource ?? 'unknown',
@@ -254,6 +259,8 @@ function createCompositionProduct(
 function readImageFileAsDataUrl(
   file: File
 ): Promise<string> {
+  if(file.size>12*1024*1024)return Promise.reject(new Error('Выберите фото размером до 12 МБ.'));
+  if(!['image/jpeg','image/png','image/webp'].includes(file.type))return Promise.reject(new Error('Поддерживаются JPEG, PNG и WebP. Сохраните фото или скриншот в одном из этих форматов.'));
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
@@ -281,7 +288,7 @@ function readImageFileAsDataUrl(
 async function submitCompositionImage(
   image: string,
   session: number,
-  captureSource: 'browser_camera' | 'native_camera'
+  captureSource: 'browser_camera' | 'native_camera' | 'gallery'
 ): Promise<void> {
   scannerStore.setCapturedImage(image);
 
@@ -428,7 +435,7 @@ function captureTextWithNativeCamera(): void {
 }
 
 async function handleNativeCameraChange(
-  event: Event
+  event: Event, source: 'native_camera' | 'gallery' = 'native_camera'
 ): Promise<void> {
   const input =
     event.currentTarget as HTMLInputElement;
@@ -450,7 +457,7 @@ async function handleNativeCameraChange(
 
     stopCamera();
 
-    await previewImage(image, 'native_camera');
+    await previewImage(image, source);
   } catch (error) {
     if (currentSession !== scanSession) {
       return;
@@ -470,7 +477,7 @@ function retryScanning(): void {
   void startSelectedMode();
 }
 
-async function previewImage(image: string, source: 'browser_camera' | 'native_camera'): Promise<void> {
+async function previewImage(image: string, source: 'browser_camera' | 'native_camera' | 'gallery'): Promise<void> {
   originalImage = image;
   rotation = 0;
   pendingSource.value = source;
@@ -652,6 +659,8 @@ onBeforeUnmount(() => {
       Сфотографировать состав нативной камерой
     </button>
 
+    <button v-if="mode==='text' && !pendingImage" type="button" class="scanner__action scanner__action--secondary" :disabled="modeSwitchDisabled" @click="galleryInput?.click()">Выбрать из галереи</button>
+    <input ref="galleryInput" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="handleNativeCameraChange($event,'gallery')">
     <template v-if="pendingImage">
       <div class="scanner__orientation" role="group" aria-label="Поворот фото">
         <button type="button" :disabled="modeSwitchDisabled" aria-label="Повернуть влево" title="Повернуть влево" @click="rotatePreview(-1)"><RotateCcw /></button>
@@ -669,7 +678,7 @@ onBeforeUnmount(() => {
       type="file"
       accept="image/*"
       capture="environment"
-      @change="handleNativeCameraChange"
+      @change="handleNativeCameraChange($event)"
     >
 
     <section class="scanner-debug">

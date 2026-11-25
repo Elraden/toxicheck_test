@@ -7,7 +7,7 @@ CATALOG_DATA_TABLES = (
 CATALOG_TABLES = ('schema_version', *CATALOG_DATA_TABLES, 'import_runs')
 IDENTITY_TABLES = ('users', 'user_sessions', 'auth_rate_limits', 'user_preferences', 'user_ingredient_exclusions')
 DECISION_TABLES = ('review_queue', 'training_data', 'user_corrections')
-RESEARCH_TABLES = ('studies', 'participants', 'cases', 'runs', 'photos', 'attempts', 'validations', 'audit_events')
+RESEARCH_TABLES = ('studies', 'participants', 'cases', 'runs', 'photos', 'attempts', 'validations', 'audit_events', 'enrollments', 'assignments', 'invitations', 'access_grants', 'satisfaction', 'barcode_attempts')
 
 # Explicit allowlist. Never remove a table just because it is empty or unknown.
 PARSER_TABLES = (

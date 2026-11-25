@@ -125,18 +125,9 @@ class OcrService:
             data.get("processing_time_ms"),
         )
 
-        if data.get("status") != "success":
-            error = data.get("error")
-            message = (
-                error.get("message")
-                if isinstance(error, dict)
-                else "OCR/ML service returned an error."
-            )
-
-            return OcrResult(
-                status="error",
-                message=message,
-            )
+        if data.get("status") not in {"success", "needs_retake"}:
+            return OcrResult(status="error", requestId=request_id,
+                             message="OCR-сервис не смог обработать изображение.")
 
         ocr = data.get("ocr")
         raw_text = (
@@ -168,9 +159,10 @@ class OcrService:
         processing_time_ms = data.get("processing_time_ms")
 
         result = OcrResult(
-            status="success",
+            status=data["status"],
+            requestId=request_id, engineVersion="external-ocr",
             rawText=clean_raw_ocr_text(raw_text),
-            compositionText=composition,
+            compositionText=composition if data["status"]=="success" else None,
             allergensText=allergens,
             confidence=confidence if isinstance(confidence, (int, float)) else None,
             processingTimeMs=(
@@ -178,7 +170,7 @@ class OcrService:
                 if isinstance(processing_time_ms, int)
                 else None
             ),
-            message="Composition recognized.",
+            message="Composition recognized." if data["status"]=="success" else "Текст распознан неуверенно. Переснимите этикетку.",
         )
 
         self._log_ocr_result(
@@ -241,7 +233,7 @@ class OcrService:
 
         if not raw_text.strip() or confidence < embedded_ocr.CONFIDENCE_RETAKE_THRESHOLD:
             result = OcrResult(
-                status="needs_retake", rawText=clean_raw_ocr_text(raw_text), confidence=confidence,
+                status="needs_retake", requestId=request_id, preprocessing=metrics, rawText=clean_raw_ocr_text(raw_text), confidence=confidence,
                 processingTimeMs=round((time.time() - start_time) * 1000),
                 message="Текст распознан неуверенно. Сфотографируйте состав ближе и при хорошем освещении.",
             )
@@ -262,6 +254,7 @@ class OcrService:
             allergensText=allergens,
             confidence=confidence if isinstance(confidence, (int, float)) else None,
             processingTimeMs=round((time.time() - start_time) * 1000),
+            requestId=request_id, preprocessing=metrics,
             message="Composition recognized by embedded OCR.",
         )
 

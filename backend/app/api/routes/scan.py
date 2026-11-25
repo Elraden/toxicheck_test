@@ -14,6 +14,7 @@ from app.schemas.scan import (
 )
 from app.services.analysis_service import AnalysisService
 from app.services.ocr_service import OcrService
+from app.services.ocr_catalog import process_ocr_result
 from app.services.scan_service import ScanService
 from app.services.normalization import split_ingredients_text
 
@@ -45,9 +46,8 @@ async def scan_composition(
         source=payload.capture_source,
     )
 
-    analysis = None
-    if result.status == "success" and result.composition_text:
-        analysis = await AnalysisService(session).analyze(result.composition_text, payload.preferences)
+    analysis = await process_ocr_result(session, result, payload.preferences)
+    if analysis is not None:
         logger.info(
             "OCR catalog result source=%s matched=%s unmatched=%r verdict=%s",
             payload.capture_source,
@@ -67,7 +67,9 @@ async def scan_composition(
         confidence=result.confidence,
         processingTimeMs=result.processing_time_ms,
         analysis=analysis,
-        requestId=str(uuid4()),
+        requestId=result.request_id, engineVersion=result.engine_version,
+        flaggedHazards=result.flagged_hazards, queuedForReview=result.queued_for_review,
+        reviewQueueStatus=result.review_queue_status,
         tokens=split_ingredients_text(result.composition_text or result.raw_text or ""),
     )
 

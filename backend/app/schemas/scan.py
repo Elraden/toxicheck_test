@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.ocr import HazardFlag
 from app.schemas.analysis import AnalyzeIngredientsResponse, AnalysisPreferences
 
 
@@ -41,6 +42,11 @@ class CompositionScanResponse(BaseModel):
     analysis: AnalyzeIngredientsResponse | None = None
     request_id: str | None = Field(default=None, alias="requestId")
     tokens: list[str] = Field(default_factory=list)
+    flagged_hazards: list[HazardFlag] = Field(default_factory=list, alias="flaggedHazards")
+    queued_for_review: int = Field(default=0, alias="queuedForReview")
+    review_queue_status: str = Field(default="available", alias="reviewQueueStatus")
+    engine_version: str | None = Field(default=None, alias="engineVersion")
+
 
 
 class ScanJobResponse(BaseModel):

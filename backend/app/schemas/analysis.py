@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.ingredients import MatchedIngredientOut
@@ -21,7 +22,8 @@ class AnalysisPreferences(BaseModel):
 class AnalyzeIngredientsRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    ingredients_text: str = Field(alias="ingredientsText", min_length=1)
+    ingredients_text: str = Field(alias="ingredientsText", min_length=1, max_length=20000)
+    source: Literal["label", "ocr"] = "label"
     product: ProductContext | None = None
     preferences: AnalysisPreferences = Field(default_factory=AnalysisPreferences)
 

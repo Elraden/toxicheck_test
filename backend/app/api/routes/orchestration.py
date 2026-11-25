@@ -12,6 +12,7 @@ from app.db.session import AnnotationSessionLocal
 from app.services.identity import Principal
 from app.services import orchestration as lab
 from app.services.research_storage import decode_photo, store_photo, photo_path
+from app.schemas.ocr import OCR_VERSION
 from app.schemas.orchestration import CaseInput, RunInput, EventsInput, TaskInput, FinishInput, ReviewInput, ExclusionInput, QualityReviewInput, Mode
 
 async def lab_access(actor:Principal=Depends(require_admin)):
@@ -89,7 +90,7 @@ async def create_run(payload:RunInput,actor:Principal=Depends(admin_write)):
             raise HTTPException(409,'Другой запуск или его серверная задача ещё работает.')
         catalog_hash=await db.scalar(text('SELECT input_sha256 FROM catalog.import_runs ORDER BY id DESC LIMIT 1'))
         env={**payload.environment,'reference_ingredients':case['reference_ingredients'],'quality_threshold':0.8,
-             'catalog_import_sha256':catalog_hash,'app_revision':lab.SERVER_VERSION,'ocr_version':'embedded-adaptive-v1','catalog_schema_version':2,
+             'catalog_import_sha256':catalog_hash,'app_revision':lab.SERVER_VERSION,'ocr_version':OCR_VERSION,'catalog_schema_version':2,
              'network_path':'server_openfoodfacts','cache_policy':'no_application_cache','client_resources':'not_measured'}
         return dict((await db.execute(text("""INSERT INTO orchestration_lab.runs(id,case_id,mode,protocol_version,config,environment,created_by)
             VALUES(:id,:case,:mode,:protocol,CAST(:config AS jsonb),CAST(:env AS jsonb),:owner) RETURNING *"""),
