@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "ToxiCheck — анализ состава",
+  "version": "0.1.6",
+  "description": "Поиск и анализ состава продуктов на страницах магазинов.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "contextMenus"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.ozon.ru/*",
+        "https://*.wildberries.ru/*",
+        "https://*.lavka.yandex.ru/*"
+      ],
+      "js": [
+        "extract.js",
+        "presentation.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "https://toxicheck.195.209.209.111.sslip.io/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "panel.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
+}

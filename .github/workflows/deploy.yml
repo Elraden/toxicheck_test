@@ -58,6 +58,14 @@ jobs:
           npm run build
           npx playwright install --with-deps chromium
           npm run test:browser
+      - name: Extension checks
+        run: |
+          node --test extension/tests/*.test.cjs
+          node --check extension/background.js
+          node --check extension/presentation.js
+          node --check extension/content.js
+          node --check extension/popup.js
+          node --check extension/options.js
       - name: Deployment configuration
         env:
           RELEASE_SHA: ${{ github.sha }}
