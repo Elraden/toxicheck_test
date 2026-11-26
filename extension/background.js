@@ -35,8 +35,19 @@ async function analyze(text){
   if(!data.verdict||!Array.isArray(data.matched)||!Array.isArray(data.unmatched))throw Error('Неожиданный ответ API.');
   return data;
 }
+async function ingredientDetail(id){
+  if(typeof id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))throw Error('Некорректный идентификатор ингредиента.');
+  const {apiBase}=await chrome.storage.local.get(defaults);
+  const u=endpoint(apiBase);
+  if(!await chrome.permissions.contains({origins:[u.origin+'/*']}))throw Error('Разрешите доступ к API в настройках расширения.');
+  const response=await fetch(u.href.replace(/\/$/,'')+'/ingredients/'+encodeURIComponent(id),{credentials:'omit',redirect:'error',headers:{Accept:'application/json'},signal:AbortSignal.timeout(15000)});
+  if(!response.ok)throw Error('Не удалось загрузить ингредиент: HTTP '+response.status);
+  const data=await response.json();
+  if(!data.name||data.id!==id)throw Error('Неожиданный ответ справочника.');
+  return data;
+}
 async function inject(tabId){
-  await chrome.scripting.executeScript({target:{tabId},files:['extract.js','content.js']});
+  await chrome.scripting.executeScript({target:{tabId},files:['extract.js','presentation.js','content.js']});
 }
 async function showSelection(info,tab){
   if(!tab?.id||!info.selectionText)return;
@@ -47,9 +58,10 @@ async function showSelection(info,tab){
 }
 chrome.contextMenus.onClicked.addListener((info,tab)=>{if(info.menuItemId===MENU)void showSelection(info,tab);});
 chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
-  if(msg?.type!=='TOXI_ANALYZE')return;
+  if(!['TOXI_ANALYZE','TOXI_INGREDIENT'].includes(msg?.type))return;
   if(sender.id!==chrome.runtime.id||!sender.tab?.id){respond({ok:false,error:'Недопустимый источник запроса.'});return;}
   (async()=>{
+    if(msg.type==='TOXI_INGREDIENT')return ingredientDetail(msg.id);
     const tabId=sender.tab.id;
     if(msg.automatic){
       const {auto}=await chrome.storage.local.get(defaults);

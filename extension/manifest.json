@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ToxiCheck — анализ состава",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Поиск и анализ состава продуктов на страницах магазинов.",
   "permissions": [
     "activeTab",
@@ -29,6 +29,7 @@
       ],
       "js": [
         "extract.js",
+        "presentation.js",
         "content.js"
       ],
       "run_at": "document_idle"
@@ -36,5 +37,15 @@
   ],
   "host_permissions": [
     "https://toxicheck.195.209.209.111.sslip.io/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "panel.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
   ]
 }

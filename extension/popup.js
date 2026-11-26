@@ -19,7 +19,7 @@ async function invoke(type){
   try{
     const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
     if(!tab?.id)throw Error('Нет активной вкладки.');
-    await chrome.scripting.executeScript({target:{tabId:tab.id},files:['extract.js','content.js']});
+    await chrome.scripting.executeScript({target:{tabId:tab.id},files:['extract.js','presentation.js','content.js']});
     const answer=await chrome.tabs.sendMessage(tab.id,{type});
     if(!answer?.ok)throw Error(answer?.error||'Не удалось открыть панель.');
     window.close();
