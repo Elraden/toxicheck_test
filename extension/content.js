@@ -12,10 +12,9 @@
   function open(){
     if(panel?.isConnected)return;
     panel=document.createElement('div');
-    panel.style.cssText='position:fixed;right:16px;bottom:16px;z-index:2147483647;width:min(360px,calc(100vw - 32px));';
     shadow=panel.attachShadow({mode:'closed'});
     const style=element('style',undefined,shadow);
-    style.textContent=':host{font:14px system-ui;color:#17201d}section{background:white;border:1px solid #cbd5d1;border-radius:14px;padding:16px;box-shadow:0 8px 32px #0003;max-height:70vh;overflow:auto}h2{font-size:18px;margin:0 0 12px}button{font:inherit;cursor:pointer;padding:7px 10px;border:1px solid #a9b8b1;border-radius:6px;background:white;color:#17201d}textarea{box-sizing:border-box;width:100%;font:inherit;min-height:85px;margin:8px 0}p,li{overflow-wrap:anywhere}ul{padding-left:20px}small{color:#485a51}header{display:flex;justify-content:space-between;align-items:center}';
+    style.textContent=":host{all:initial!important;position:fixed!important;right:16px!important;bottom:16px!important;z-index:2147483647!important;width:min(380px,calc(100vw - 32px))!important;display:block!important;font:400 14px/1.5 system-ui,sans-serif!important;color:#17201d!important;direction:ltr!important;text-align:left!important;writing-mode:horizontal-tb!important;letter-spacing:normal!important;word-spacing:normal!important}\n*,*::before,*::after{box-sizing:border-box}\nsection{display:block;background:#fff;color:#17201d;font:400 14px/1.5 system-ui,sans-serif;letter-spacing:normal;word-spacing:normal;text-align:left;border:1px solid #cbd5d1;border-radius:14px;padding:16px;box-shadow:0 8px 32px #0003;max-height:75vh;overflow:auto}\nheader{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{font:700 20px/1.3 system-ui,sans-serif;margin:0}h3{font:650 15px/1.4 system-ui,sans-serif;margin:14px 0 6px}\nbutton{display:inline-block;font:500 14px/1.4 system-ui,sans-serif;cursor:pointer;padding:8px 12px;border:1px solid #a9b8b1;border-radius:7px;background:white;color:#17201d;white-space:normal}\ntextarea{display:block;width:100%;font:400 14px/1.5 system-ui,sans-serif;color:#17201d;background:white;border:1px solid #a9b8b1;border-radius:7px;padding:8px;min-height:110px;margin:8px 0;resize:vertical;white-space:pre-wrap}\np,li,small{font:400 14px/1.5 system-ui,sans-serif;overflow-wrap:anywhere;white-space:normal;letter-spacing:normal}p{margin:10px 0}ul{display:block;list-style:disc outside;margin:6px 0 12px;padding:0 0 0 22px}li{display:list-item;margin:4px 0}small{display:block;color:#485a51;font-size:12px;margin:5px 0}";
     const section=element('section',undefined,shadow);
     const header=element('header',undefined,section);
     element('h2','ToxiCheck',header);
@@ -24,11 +23,11 @@
     body=element('div',undefined,section);
     document.documentElement.append(panel);
   }
-  async function run(text,automatic=false){
+  async function run(text,automatic=false,detected=automatic){
     open();
     const id=++sequence;
     body.replaceChildren();
-    element('small',automatic?'Состав найден автоматически. Проверьте, что он полный.':'Состав выбран вручную.',body);
+    element('small',detected?'Состав найден автоматически. Проверьте, что он полный.':'Состав выбран вручную.',body);
     const field=element('textarea',undefined,body);field.value=text;
     field.setAttribute('aria-label','Текст состава');
     const button=element('button','Проверить состав',body);
@@ -70,7 +69,7 @@
       else{respond({ok:false,error:'Выделите текст состава на странице.'});}
     }else if(msg?.type==='TOXI_FIND'){
       const found=globalThis.ToxiExtract.find(document);
-      if(found){void run(found.text);respond({ok:true});}
+      if(found){void run(found.text,false,true);respond({ok:true});}
       else respond({ok:false,error:'Состав не найден. Выделите текст вручную.'});
     }
   });

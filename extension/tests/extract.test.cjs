@@ -8,3 +8,6 @@ test('accepts English heading',()=>assert.equal(clean('Ingredients: water, sugar
 test('rejects missing composition',()=>{assert.equal(plausible('Состав не указан'),false);assert.equal(plausible('состав'),false);});
 test('normalizes spaces',()=>assert.equal(clean('Состав:\nвода,\u00a0сахар'),'вода, сахар'));
 test('limits candidate length',()=>assert.equal(plausible('а'.repeat(3001)),false));
+
+test('accepts composition on a separate line without colon',()=>assert.equal(clean('Состав\nвода, сахар\nУсловия хранения: в сухом месте'),'вода, сахар'));
+test('accepts extended heading',()=>assert.equal(clean('Состав товара: молоко, сахар'),'молоко, сахар'));

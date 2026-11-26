@@ -2,9 +2,9 @@
 (function(root){
   'use strict';
   const normalize = value => String(value ?? '').replace(/\u00a0/g, ' ').replace(/\r/g, '').trim();
-  const heading = /^(?:состав(?:\s+продукта)?|ингредиенты|ingredients)\s*[:：]?\s*$/i;
-  const start = /(?:^|\n)\s*(?:состав(?:\s+продукта)?|ингредиенты|ingredients)\s*[:：]\s*/i;
-  const end = /(?:\n|[.;]\s+)(?:пищевая ценность|энергетическая ценность|условия хранения|срок годности|масса нетто|производитель|способ приготовления|nutrition facts|storage instructions)/i;
+  const heading = /^(?:состав(?:\s+(?:продукта|товара))?|ингредиенты|ingredients)\s*[:：]?\s*$/i;
+  const start = /(?:^|\n)\s*(?:состав(?:\s+(?:продукта|товара))?|ингредиенты|ingredients)(?:[ \t]*[:：][ \t]*|[ \t]*\n[ \t]*)/i;
+  const end = /(?:\n|[.;]\s+)(?:пищевая ценность|энергетическая ценность|условия хранения|срок годности|масса нетто|производитель|способ приготовления|производство|страна производства|характеристики|описание товара|nutrition facts|storage instructions)/i;
   function clean(value){
     const s=normalize(value);
     const marker=s.match(start);
@@ -22,21 +22,34 @@
   }
   function find(doc){
     const candidates=[];
+    const read=el=>normalize(el?.innerText ?? el?.textContent);
     const add=(value,score,method)=>{
       const text=clean(value);
       if(plausible(text))candidates.push({text,score,method});
     };
     for(const el of doc.querySelectorAll('h1,h2,h3,h4,h5,dt,th,span,strong,b,label,p,div,li,td')){
       if(!visible(el))continue;
-      const raw=normalize(el.innerText);
+      const raw=read(el);
       if(!raw || raw.length>3500)continue;
       if(heading.test(raw)){
         const sibling=el.nextElementSibling;
         if(visible(sibling))add(sibling.innerText,90,'heading-sibling');
-        const parent=el.parentElement;
-        if(parent && parent.childElementCount<=5 && visible(parent)){
-          const body=normalize(parent.innerText).slice(raw.length).trim();
-          if(body)add(body,80,'heading-parent');
+        // A label may be wrapped in several elements before its value.
+        let node=el;
+        for(let depth=0;depth<4&&node.parentElement;depth++){
+          const parent=node.parentElement;
+          if(!visible(parent)||parent.matches('body,main,html'))break;
+          if(heading.test(read(node))&&visible(node.nextElementSibling)){
+            add(read(node.nextElementSibling),88-depth*3,'wrapped-heading-sibling');
+          }
+          const whole=read(parent);
+          if(whole.length>3500)break;
+          if(whole.toLowerCase().startsWith(raw.toLowerCase())&&whole.length>raw.length){
+            const rest=whole.slice(raw.length).replace(/^\s*[:：]?\s*/,'');
+            if(rest)add(rest,78-depth*3,'heading-ancestor');
+            break;
+          }
+          node=parent;
         }
       }else if(start.test(raw)){
         add(raw,el.childElementCount===0?95:70,'inline-heading');
