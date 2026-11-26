@@ -65,6 +65,7 @@ jobs:
           node --check extension/presentation.js
           node --check extension/content.js
           node --check extension/popup.js
+          node --check extension/options.js
       - name: Deployment configuration
         env:
           RELEASE_SHA: ${{ github.sha }}

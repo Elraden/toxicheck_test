@@ -18,7 +18,7 @@
       !heading.test(text) && !/^(?:описание|характеристики|отзывы|доставка|купить)$/i.test(text) && !/^(?:состав не указан|нет информации|не указан|не указано|подробнее|показать ещё|показать еще)$/i.test(text);
   }
   function visible(el){
-    return !!el && !el.closest('[hidden],[aria-hidden="true"],script,style,nav,footer,header') && el.getClientRects().length>0 && getComputedStyle(el).visibility!=='hidden';
+    return !!el && !el.closest('[hidden],[aria-hidden="true"],script,style,nav,footer') && el.getClientRects().length>0 && getComputedStyle(el).visibility!=='hidden';
   }
   function find(doc){
     const candidates=[];
@@ -27,16 +27,18 @@
       const text=clean(value);
       if(plausible(text))candidates.push({text,score,method});
     };
-    for(const el of doc.querySelectorAll('h1,h2,h3,h4,h5,dt,th,span,strong,b,label,p,div,li,td')){
+    for(const el of doc.querySelectorAll('h1,h2,h3,h4,h5,h6,dt,dd,th,span,strong,b,label,p,div,li,td,section,article,summary,button,[role=heading]')){
       if(!visible(el))continue;
       const raw=read(el);
       if(!raw || raw.length>3500)continue;
       if(heading.test(raw)){
         const sibling=el.nextElementSibling;
-        if(visible(sibling))add(sibling.innerText,90,'heading-sibling');
+        if(visible(sibling))add(read(sibling),90,'heading-sibling');
+        const controlled=el.getAttribute('aria-controls');
+        if(controlled){const target=doc.getElementById(controlled);if(visible(target))add(read(target),94,'aria-controls');}
         // A label may be wrapped in several elements before its value.
         let node=el;
-        for(let depth=0;depth<4&&node.parentElement;depth++){
+        for(let depth=0;depth<6&&node.parentElement;depth++){
           const parent=node.parentElement;
           if(!visible(parent)||parent.matches('body,main,html'))break;
           if(heading.test(read(node))&&visible(node.nextElementSibling)){
@@ -53,6 +55,8 @@
         }
       }else if(start.test(raw)){
         add(raw,el.childElementCount===0?95:70,'inline-heading');
+      }else if(el.childElementCount===0&&/^(?:состав(?:\s+(?:продукта|товара))?|ингредиенты)\s+\S/i.test(raw)){
+        add(raw.replace(/^(?:состав(?:\s+(?:продукта|товара))?|ингредиенты)\s+/i,''),65,'inline-no-colon');
       }
     }
     candidates.sort((a,b)=>b.score-a.score||a.text.length-b.text.length);

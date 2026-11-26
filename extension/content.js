@@ -3,7 +3,7 @@
   globalThis.__toxiInstalled=true;
   const P=globalThis.ToxiPresentation;
   const allowed=()=>['ozon.ru','wildberries.ru','lavka.yandex.ru'].some(d=>location.hostname===d||location.hostname.endsWith('.'+d));
-  let panel,shadow,body,sequence=0,viewSequence=0,lastKey='',timer,lastUrl=location.href,analysisState=null;
+  let panel,shadow,body,sequence=0,viewSequence=0,lastKey='',timer,lastUrl=location.href,analysisState=null,scanning=false,scanAgain=false;
   function el(tag,text,parent,cls){
     const node=document.createElement(tag);
     if(text!==undefined)node.textContent=text;
@@ -157,18 +157,34 @@
       state.result=response.data;showResult(state);
     }catch(e){if(id===sequence){state.error=e.message;showResult(state);}}
   }
-  async function scan(){
-    if(!allowed())return;
-    const {auto}=await chrome.storage.local.get({auto:false});
-    if(!auto)return;
-    const result=globalThis.ToxiExtract.find(document);
-    if(!result)return;
-    const key=location.href+'\n'+result.text;
-    if(key===lastKey)return;
-    lastKey=key;void run(result.text,true);
+  function checkNavigation(){
+    if(location.href!==lastUrl){lastUrl=location.href;lastKey='';sequence++;viewSequence++;analysisState=null;panel?.remove();}
   }
-  function schedule(){clearTimeout(timer);timer=setTimeout(()=>void scan().catch(console.warn),800);}
+  async function scan(){
+    checkNavigation();
+    if(!allowed())return 'Автоматический режим работает на поддерживаемых площадках.';
+    if(scanning){scanAgain=true;return 'Поиск состава уже выполняется.';}
+    scanning=true;
+    try{
+      const {auto}=await chrome.storage.local.get({auto:false});
+      if(!auto)return 'Автоматический режим отключён.';
+      const result=globalThis.ToxiExtract.find(document);
+      if(!result)return 'Состав пока не найден. Откройте описание товара или выделите текст.';
+      const key=location.href+'\n'+result.text;
+      if(key===lastKey)return 'Состав уже найден.';
+      lastKey=key;
+      if(analysisState?.text===result.text&&panel?.isConnected&&!analysisState.error)return 'Состав уже найден.';
+      void run(result.text,true);
+      return 'Состав найден, выполняется анализ.';
+    }finally{scanning=false;if(scanAgain){scanAgain=false;schedule();}}
+  }
+  function schedule(){
+    // Throttle instead of an endlessly postponed debounce on dynamic storefronts.
+    if(timer)return;
+    timer=setTimeout(()=>{timer=null;void scan().catch(console.warn);},800);
+  }
   chrome.runtime.onMessage.addListener((msg,_sender,respond)=>{
+    if(msg?.type==='TOXI_AUTO_SCAN'){scan().then(message=>respond({ok:true,message}),e=>respond({ok:false,message:e.message}));return true;}
     if(msg?.type==='TOXI_MANUAL'){
       const text=String(msg.text||getSelection()?.toString()||'').trim();
       if(text){void run(text);respond({ok:true});}else respond({ok:false,error:'Выделите текст состава на странице.'});
@@ -179,10 +195,14 @@
   });
   if(allowed()){
     const observer=new MutationObserver(records=>{
-      if(location.href!==lastUrl){lastUrl=location.href;lastKey='';sequence++;viewSequence++;analysisState=null;panel?.remove();}
+      checkNavigation();
       if(records.some(r=>r.target!==panel&&!panel?.contains(r.target)&&!(r.type==='childList'&&[...r.addedNodes,...r.removedNodes].every(n=>n===panel))))schedule();
     });
-    observer.observe(document.documentElement,{childList:true,subtree:true,characterData:true});
+    observer.observe(document.documentElement,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden','aria-hidden','open','class','style']});
+    // Covers SPA navigation and late product descriptions without relying on DOM events alone.
+    setInterval(()=>{if(!document.hidden)schedule();},3000);
+    window.addEventListener('popstate',schedule);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule();});
     chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.auto){lastKey='';if(changes.auto.newValue)schedule();}});
     schedule();
   }
