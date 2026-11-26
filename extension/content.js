@@ -119,9 +119,11 @@
     const tone=verdict.level==='dangerous'||verdict.level==='risky_for_user'?'danger':verdict.level==='attention'?'attention':verdict.level==='safe'?'neutral':'unknown';
     const v=el('article',undefined,body,'card verdict '+tone);
     el('h2',verdict.title,v);el('p',verdict.description,v);
-    const {additives,foods}=P.groups(matched);
+    const personalIds=new Set((verdict.reasons||[]).filter(r=>r.severity==='personal').map(r=>r.ingredient_id));
+    const personal=matched.filter(i=>personalIds.has(i.ingredient_id));
+    const {additives,foods}=P.groups(matched.filter(i=>!personalIds.has(i.ingredient_id)));
     const counts=el('div',undefined,body,'counts');
-    for(const [n,label] of [[additives.length,'E-добавки'],[foods.length,'Ингредиенты'],[unmatched.length,'Не распознано']]){
+    for(const [n,label] of [[matched.filter(P.isAdditive).length,'E-добавки'],[matched.filter(i=>!P.isAdditive(i)).length,'Ингредиенты'],[unmatched.length,'Не распознано']]){
       const c=el('div',undefined,counts,'count');el('strong',String(n),c);el('small',label,c);
     }
     function group(title,items){
@@ -129,14 +131,17 @@
       el('h3',title+' · '+items.length,body);
       for(const item of items){
         const s=P.status(item.severity,item.rules);
-        const card=button(body,'',()=>void showIngredient(item,state),'ingredient '+s.tone);
+        const excluded=personalIds.has(item.ingredient_id);
+        const card=button(body,'',()=>void showIngredient(item,state),'ingredient '+(excluded?'danger':s.tone));
         if(item.code)el('span',item.code,card,'code');
         const info=el('span',undefined,card,'info');el('strong',item.name,info);badge(info,s);
+        if(excluded)badge(info,{label:'Ваше исключение',tone:'danger'});
         const reason=verdict.reasons?.find(r=>r.ingredient_id===item.ingredient_id);
         if(reason?.explanation)el('small',reason.explanation,info);
         el('span','›',card,'arrow').setAttribute('aria-hidden','true');
       }
     }
+    group('Из ваших исключений',personal);
     group('Пищевые добавки (E-коды)',additives);
     group('Остальные ингредиенты',foods);
     if(unmatched.length){
@@ -145,7 +150,7 @@
       el('p','Эти позиции не получили оценку. Проверьте исходный текст.',box,'muted');
       el('p',unmatched.join(', '),box,'unmatched');
     }
-    el('small','Оценка основана на каталоге и правилах ToxiCheck. Персональные исключения пока не учитываются. Неполный состав не подтверждает безопасность.',body);
+    el('small','Оценка основана на каталоге и правилах ToxiCheck. Учитываются сохранённые в расширении персональные исключения. Неполный состав не подтверждает безопасность.',body);
   }
   function detailSection(title,text){
     const box=el('article',undefined,body,'detail-section');el('h3',title,box);if(text)el('p',text,box);return box;
@@ -176,12 +181,33 @@
   }
   async function showIngredient(item,state){
     const id=++viewSequence;body.replaceChildren();body.scrollTop=0;
-    button(body,'← К результатам анализа',()=>showResult(state),'back');
+    button(body,'← К результатам анализа',()=>{if(state.preferencesChanged)void run(state.text,false,state.detected);else showResult(state);},'back');
     const title=el('div',undefined,body,'detail-title '+P.status(item.severity,item.rules).tone);
     if(item.code)el('span',item.code,title,'code');
     el('h2',item.name,title);
     const s=P.status(item.severity,item.rules),assessment=detailSection('Оценка');
     badge(assessment,s);el('p',s.description,assessment);
+    const preferenceBox=detailSection('Мои предпочтения');
+    const toggle=button(preferenceBox,'Загрузка…',()=>{},'');toggle.disabled=true;
+    const prefStatus=el('small','',preferenceBox);
+    try{
+      const {excludedIngredients}=await chrome.storage.local.get({excludedIngredients:[]});
+      if(id!==viewSequence)return;
+      let selected=excludedIngredients.some(x=>x.id===item.ingredient_id);
+      const update=()=>{toggle.textContent=selected?'Убрать из исключений':'Добавить в исключения';toggle.className=selected?'exclude-button selected':'exclude-button';toggle.setAttribute('aria-pressed',String(selected));};
+      update();toggle.disabled=false;
+      toggle.onclick=async()=>{
+        toggle.disabled=true;
+        try{
+          const r=await chrome.runtime.sendMessage({type:'TOXI_EXCLUSION',item:{id:item.ingredient_id,name:item.name,code:item.code},selected:!selected});
+          if(!r?.ok)throw Error(r?.error||'Не удалось сохранить.');
+          selected=r.data.some(x=>x.id===item.ingredient_id);update();
+          prefStatus.textContent='Сохранено. Вердикт обновится при возврате к результатам.';
+          state.preferencesChanged=true;
+        }catch(e){prefStatus.textContent=e.message;}finally{toggle.disabled=false;}
+      };
+    }catch(e){prefStatus.textContent=e.message;}
+    if(id!==viewSequence)return;
     const loading=el('p','Загружаем карточку ингредиента…',body,'loading');
     try{
       const response=await chrome.runtime.sendMessage({type:'TOXI_INGREDIENT',id:item.ingredient_id});
@@ -229,7 +255,7 @@
       const key=location.href+'\n'+result.text;
       if(key===lastKey)return 'Состав уже найден.';
       lastKey=key;
-      if(analysisState?.text===result.text&&panel?.isConnected&&!analysisState.error)return 'Состав уже найден.';
+      if(analysisState?.text===result.text&&panel?.isConnected&&!analysisState.error&&!analysisState.preferencesChanged)return 'Состав уже найден.';
       void run(result.text,true);
       return 'Состав найден, выполняется анализ.';
     }finally{scanning=false;if(scanAgain){scanAgain=false;schedule();}}
@@ -248,6 +274,9 @@
       const found=globalThis.ToxiExtract.find(document);
       if(found){void run(found.text,false,true);respond({ok:true});}else respond({ok:false,error:'Состав не найден. Выделите текст вручную.'});
     }
+  });
+  chrome.storage.onChanged.addListener((changes,area)=>{
+    if(area==='local'&&changes.excludedIngredients){lastKey='';if(analysisState)analysisState.preferencesChanged=true;}
   });
   if(allowed()){
     const observer=new MutationObserver(records=>{

@@ -24,11 +24,12 @@ function endpoint(raw){
 async function analyze(text){
   const value=String(text??'').trim();
   if(!value||value.length>20000)throw Error('Состав должен содержать от 1 до 20 000 символов.');
-  const {apiBase}=await chrome.storage.local.get(defaults);
+  const {apiBase,excludedIngredients}=await chrome.storage.local.get({...defaults,excludedIngredients:[]});
+  const excludedIngredientIds=Array.isArray(excludedIngredients)?excludedIngredients.map(x=>x.id).filter(x=>typeof x==='string'):[];
   const u=endpoint(apiBase);
   if(!await chrome.permissions.contains({origins:[u.origin+'/*']}))throw Error('Разрешите доступ к API в настройках расширения.');
   let response;
-  try{response=await fetch(u.href.replace(/\/$/,'')+'/analysis',{method:'POST',credentials:'omit',redirect:'error',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({ingredientsText:value,source:'label',preferences:{excludedIngredientIds:[]}}),signal:AbortSignal.timeout(15000)});}
+  try{response=await fetch(u.href.replace(/\/$/,'')+'/analysis',{method:'POST',credentials:'omit',redirect:'error',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({ingredientsText:value,source:'label',preferences:{excludedIngredientIds}}),signal:AbortSignal.timeout(15000)});}
   catch(error){throw Error('Не удалось подключиться к API '+u.origin+'. Проверьте адрес и доступность сервера. '+error.message);}
   if(!response.ok)throw Error('API недоступен: HTTP '+response.status);
   const data=await response.json();
@@ -46,6 +47,25 @@ async function ingredientDetail(id){
   if(!data.name||data.id!==id)throw Error('Неожиданный ответ справочника.');
   return data;
 }
+async function searchCatalog(query,offset){
+  const {apiBase}=await chrome.storage.local.get(defaults),u=endpoint(apiBase);
+  if(!await chrome.permissions.contains({origins:[u.origin+'/*']}))throw Error('Разрешите доступ к API в настройках расширения.');
+  const params=new URLSearchParams({q:String(query||'').slice(0,200),limit:'30',offset:String(Math.max(0,Math.min(100000,Number(offset)||0)))});
+  const response=await fetch(u.href.replace(/\/$/,'')+'/ingredients?'+params,{credentials:'omit',redirect:'error',headers:{Accept:'application/json'},signal:AbortSignal.timeout(15000)});
+  if(!response.ok)throw Error('Каталог недоступен: HTTP '+response.status);
+  const data=await response.json();if(!Array.isArray(data.items))throw Error('Неожиданный ответ каталога.');return data;
+}
+let preferenceQueue=Promise.resolve();
+function setExclusion(item,selected){
+  const operation=preferenceQueue.then(async()=>{
+    if(!item||typeof item.id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id))throw Error('Некорректный ингредиент.');
+    const {excludedIngredients}=await chrome.storage.local.get({excludedIngredients:[]});
+    const list=Array.isArray(excludedIngredients)?excludedIngredients.filter(x=>x.id!==item.id):[];
+    if(selected)list.push({id:item.id,name:String(item.name||item.id).slice(0,500),code:String(item.code||'').slice(0,40)});
+    await chrome.storage.local.set({excludedIngredients:list});return list;
+  });
+  preferenceQueue=operation.catch(()=>{});return operation;
+}
 async function inject(tabId){
   await chrome.scripting.executeScript({target:{tabId},files:['extract.js','presentation.js','content.js']});
 }
@@ -58,10 +78,13 @@ async function showSelection(info,tab){
 }
 chrome.contextMenus.onClicked.addListener((info,tab)=>{if(info.menuItemId===MENU)void showSelection(info,tab);});
 chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
-  if(!['TOXI_ANALYZE','TOXI_INGREDIENT'].includes(msg?.type))return;
-  if(sender.id!==chrome.runtime.id||!sender.tab?.id){respond({ok:false,error:'Недопустимый источник запроса.'});return;}
+  if(!['TOXI_ANALYZE','TOXI_INGREDIENT','TOXI_CATALOG','TOXI_EXCLUSION'].includes(msg?.type))return;
+  if(sender.id!==chrome.runtime.id||(!sender.tab?.id&&!sender.url?.startsWith(chrome.runtime.getURL('')))){respond({ok:false,error:'Недопустимый источник запроса.'});return;}
   (async()=>{
+    if(msg.type==='TOXI_CATALOG'){if(!sender.url?.startsWith(chrome.runtime.getURL('')))throw Error('Недопустимый источник запроса.');return searchCatalog(msg.query,msg.offset);}
+    if(msg.type==='TOXI_EXCLUSION')return setExclusion(msg.item,msg.selected===true);
     if(msg.type==='TOXI_INGREDIENT')return ingredientDetail(msg.id);
+    if(!sender.tab?.id)throw Error('Нет активной вкладки.');
     const tabId=sender.tab.id;
     if(msg.automatic){
       const {auto}=await chrome.storage.local.get(defaults);

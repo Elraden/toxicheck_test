@@ -30,3 +30,6 @@ async function invoke(type){
 }
 document.getElementById('manual').onclick=()=>void invoke('TOXI_MANUAL');
 document.getElementById('find').onclick=()=>void invoke('TOXI_FIND');
+
+document.getElementById('preferences').onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL('preferences.html')});
+chrome.storage.local.get({excludedIngredients:[]}).then(s=>{document.getElementById('excluded-count').textContent='В списке исключений: '+s.excludedIngredients.length;});

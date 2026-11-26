@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ToxiCheck — анализ состава",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Поиск и анализ состава продуктов на страницах магазинов.",
   "permissions": [
     "activeTab",
