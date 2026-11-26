@@ -24,6 +24,56 @@
     svg.append(rect,path);parent.append(svg);
   }
   const styles=chrome.runtime.getURL('panel.css');
+  // Keep the chosen position within this tab, including when the panel is reopened.
+  let position=null,resizeObserver=null;
+  function clampPosition(x,y,w,h,vw,vh){
+    const margin=8;
+    return {x:Math.max(margin,Math.min(x,Math.max(margin,vw-w-margin))),
+      y:Math.max(margin,Math.min(y,Math.max(margin,vh-h-margin)))};
+  }
+  function place(target,x,y){
+    const rect=target.getBoundingClientRect();
+    position=clampPosition(x,y,rect.width,rect.height,document.documentElement.clientWidth,window.innerHeight);
+    target.style.setProperty('--toxi-x',position.x+'px');
+    target.style.setProperty('--toxi-y',position.y+'px');
+    target.style.setProperty('--toxi-right','auto');
+    target.style.setProperty('--toxi-bottom','auto');
+  }
+  function fitPanel(){
+    if(panel?.isConnected&&position)place(panel,position.x,position.y);
+  }
+  window.addEventListener('resize',fitPanel);
+  function enableDrag(header,target){
+    let drag=null;
+    header.addEventListener('pointerdown',event=>{
+      if(!event.isPrimary||event.button!==0||event.target.closest('button,a,input'))return;
+      const rect=target.getBoundingClientRect();
+      drag={id:event.pointerId,dx:event.clientX-rect.left,dy:event.clientY-rect.top};
+      header.setPointerCapture(event.pointerId);
+      header.classList.add('dragging');
+      event.preventDefault();
+    });
+    header.addEventListener('pointermove',event=>{
+      if(drag?.id!==event.pointerId)return;
+      place(target,event.clientX-drag.dx,event.clientY-drag.dy);
+    });
+    function finish(event){
+      if(drag?.id!==event.pointerId)return;
+      drag=null;header.classList.remove('dragging');
+    }
+    for(const type of ['pointerup','pointercancel','lostpointercapture'])header.addEventListener(type,finish);
+    // Keyboard users can move the window using the focused handle and arrow keys.
+    header.addEventListener('keydown',event=>{
+      if(event.target!==header)return;
+      const delta={ArrowLeft:[-20,0],ArrowRight:[20,0],ArrowUp:[0,-20],ArrowDown:[0,20]}[event.key];
+      if(!delta)return;
+      event.preventDefault();
+      const rect=target.getBoundingClientRect();place(target,rect.left+delta[0],rect.top+delta[1]);
+    });
+    header.tabIndex=0;
+    header.setAttribute('aria-label','Переместить окно ToxiCheck: перетащите или используйте стрелки клавиатуры');
+    header.title='Перетащите окно за заголовок';
+  }
   function open(){
     if(panel?.isConnected)return;
     panel=document.createElement('div');
@@ -31,18 +81,24 @@
     shadow=panel.attachShadow({mode:'closed'});
     const link=el('link',undefined,shadow);
     link.rel='stylesheet';
-    link.onload=()=>panel?.style.removeProperty('visibility');
-    link.onerror=()=>panel?.style.removeProperty('visibility');
+    const target=panel;
+    link.onload=()=>{target.style.removeProperty('visibility');if(target===panel)fitPanel();};
+    link.onerror=()=>target.style.removeProperty('visibility');
     link.href=styles;
     const shell=el('section',undefined,shadow,'shell');
     shell.setAttribute('aria-label','ToxiCheck — анализ состава');
     const header=el('header',undefined,shell,'top');
     const brand=el('div',undefined,header,'brand');logo(brand);
     const words=el('div',undefined,brand);el('strong','ToxiCheck',words);el('small','Проверка состава продукта',words);
+    const grip=el('span','⠿',header,'drag-grip');grip.setAttribute('aria-hidden','true');
+    enableDrag(header,panel);
     const close=button(header,'×',()=>{sequence++;viewSequence++;panel.remove();},'close');
     close.setAttribute('aria-label','Закрыть ToxiCheck');
     body=el('div',undefined,shell,'body');
     document.documentElement.append(panel);
+    resizeObserver?.disconnect();
+    resizeObserver=new ResizeObserver(fitPanel);resizeObserver.observe(panel);
+    if(position)fitPanel();
   }
   function badge(parent,s){return el('span',s.label,parent,'badge '+s.tone);}
   function editor(state,expanded){
