@@ -1,8 +1,16 @@
 const MENU='toxicheck-selection';
-const defaults={apiBase:'http://localhost:8000/api',auto:false};
+const defaults={apiBase:'https://toxicheck.195.209.209.111.sslip.io/api',auto:false};
 const limits=new Map();
-chrome.runtime.onInstalled.addListener(()=>{
-  chrome.contextMenus.create({id:MENU,title:'Проверить состав в ToxiCheck',contexts:['selection']});
+chrome.runtime.onInstalled.addListener(details=>{
+  chrome.contextMenus.removeAll(()=>{
+    chrome.contextMenus.create({id:MENU,title:'Проверить состав в ToxiCheck',contexts:['selection']});
+  });
+  // Migrate only the original MVP's localhost default, once on upgrade.
+  if(details.reason==='update' && details.previousVersion==='0.1.0'){
+    void chrome.storage.local.get('apiBase').then(({apiBase})=>{
+      if(apiBase==='http://localhost:8000/api')return chrome.storage.local.set({apiBase:defaults.apiBase,auto:false});
+    }).catch(console.error);
+  }
 });
 function isAllowedPage(url){
   try{const h=new URL(url).hostname;return ['ozon.ru','wildberries.ru','lavka.yandex.ru'].some(d=>h===d||h.endsWith('.'+d));}catch{return false;}
@@ -19,7 +27,9 @@ async function analyze(text){
   const {apiBase}=await chrome.storage.local.get(defaults);
   const u=endpoint(apiBase);
   if(!await chrome.permissions.contains({origins:[u.origin+'/*']}))throw Error('Разрешите доступ к API в настройках расширения.');
-  const response=await fetch(u.href.replace(/\/$/,'')+'/analysis',{method:'POST',credentials:'omit',redirect:'error',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({ingredientsText:value,source:'label',preferences:{excludedIngredientIds:[]}}),signal:AbortSignal.timeout(15000)});
+  let response;
+  try{response=await fetch(u.href.replace(/\/$/,'')+'/analysis',{method:'POST',credentials:'omit',redirect:'error',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({ingredientsText:value,source:'label',preferences:{excludedIngredientIds:[]}}),signal:AbortSignal.timeout(15000)});}
+  catch(error){throw Error('Не удалось подключиться к API '+u.origin+'. Проверьте адрес и доступность сервера. '+error.message);}
   if(!response.ok)throw Error('API недоступен: HTTP '+response.status);
   const data=await response.json();
   if(!data.verdict||!Array.isArray(data.matched)||!Array.isArray(data.unmatched))throw Error('Неожиданный ответ API.');
